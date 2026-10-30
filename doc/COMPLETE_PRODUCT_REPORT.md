@@ -2,6 +2,8 @@
 
 ## Veredicto
 
+Este informe corresponde al commit de implementación `485c0d8`. La verificación independiente posterior, con autenticación y restauración reales, se documenta en [la aceptación operativa](OPERATIONAL_ACCEPTANCE_REPORT.md). Sus resultados actualizados no convierten las pruebas controladas en verificación de Google real.
+
 **INCOMPLETE.** Se entregan código ejecutable y pruebas locales de la aplicación ampliada. La aceptación completa exigida no puede declararse: falta una exportación autorizada y genuina de NotebookLM, acceso OAuth/licencia de esta cuenta para verificar Google en vivo y ejecución de Docker en un entorno que lo tenga disponible. No se presenta un vídeo técnico sintético como sustituto ni se atribuyen a NotebookLM resultados de otra procedencia.
 
 Las limitaciones externas no detuvieron el trabajo independiente: se implementaron los módulos locales, los adaptadores oficiales utilizables y los recorridos manuales. No se afirma generación desatendida ni publicación real verificada.

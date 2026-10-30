@@ -59,6 +59,8 @@ El backend reclama un trabajo con coordinación PostgreSQL, propietario y lease.
 
 La pausa del planificador no revoca una publicación ya aprobada. Para un vídeo ya registrado en YouTube, revisar y modificar expresamente su programación mediante el control de publicación o la interfaz oficial.
 
+Una fecha de publicación futura programa su paso a público en YouTube. Es obligatorio seleccionar `public` expresamente; `private` o `unlisted` con fecha se rechazan con 409. Para mantener esas visibilidades, borrar la fecha. Un turno editorial puede proponer una fecha, pero no sustituye esa elección explícita. Los trabajos antiguos contradictorios se detienen antes de llamar al proveedor y requieren revisión.
+
 ## Archivos, copias y restauración
 
 Los archivos se escriben en staging, se calcula SHA256, se sincronizan y se renombran a una clave derivada del checksum. Un fallo entre archivo y transacción puede dejar un huérfano; no una referencia a un archivo que aún se esté escribiendo. La comprobación de almacenamiento muestra ausencias y huérfanos. La limpieza solo elimina staging o blobs no referenciados más antiguos que la retención configurada. No elimina historia ni medios referenciados.
@@ -71,7 +73,43 @@ Para una copia coherente:
 4. Guardar también la configuración privada por separado mediante un sistema seguro.
 5. Reiniciar y comprobar salud y una producción con sus archivos.
 
-Restaurar primero en una base y directorios nuevos y aislados; no sobrescribir una base compartida. Restaurar el dump, medios y claves, configurar el mismo usuario/entorno de protección cuando se use DPAPI, aplicar migraciones pendientes y ejecutar la comprobación de almacenamiento. No se ejecutó una restauración real de backup en esta sesión; sí se verificó persistencia tras reiniciar API y PostgreSQL.
+Restaurar primero en una base y directorios nuevos y aislados; no sobrescribir una base compartida. Restaurar el dump, medios y claves, configurar el mismo usuario/entorno de protección cuando se use DPAPI, aplicar migraciones pendientes y ejecutar la comprobación de almacenamiento. La aceptación posterior ejecutó una restauración real en Windows: todas las filas, checksums, ACL y descifrado de un valor protegido de prueba, además del arranque de la aplicación restaurada. Consulta [la evidencia de aceptación](OPERATIONAL_ACCEPTANCE_REPORT.md).
+
+### Copia y restauración reproducibles en Windows
+
+Los scripts requieren PowerShell, PostgreSQL local y el mismo usuario/máquina cuando las claves estén protegidas con DPAPI. Usar `.pgpass`/`PGPASSFILE` privado o el mecanismo de credenciales aprobado; no poner contraseñas en argumentos ni en el repositorio. Los directorios de destino y la base de restauración deben ser nuevos. El usuario PostgreSQL necesita permiso para crear esa base aislada.
+
+```powershell
+# Detener API y trabajador antes de copiar. Sustituir estas rutas por las configuradas.
+.\scripts\Backup-NotebookYt.ps1 -Database notebookyt -Server 127.0.0.1 -Port 5432 -Username notebookyt `
+  -PgBin 'C:\PostgreSQL\bin' -MediaDirectory 'C:\NotebookYt\media' -KeyDirectory 'C:\NotebookYt\keys' `
+  -Destination 'C:\NotebookYtBackups\acceptance-20261030' -ApplicationStopped
+
+.\scripts\Restore-NotebookYt.ps1 -BackupDirectory 'C:\NotebookYtBackups\acceptance-20261030' `
+  -NewDatabase notebookyt_restore_20261030 -Server 127.0.0.1 -Port 5432 -Username notebookyt `
+  -PgBin 'C:\PostgreSQL\bin' -MediaDirectory 'C:\NotebookYtRestore\media' -KeyDirectory 'C:\NotebookYtRestore\keys'
+```
+
+El backup incluye dump en formato custom, medios, claves, SHA256 y descriptores de permisos Windows. Su directorio queda restringido al usuario que lo crea. El manifiesto guarda **nombres** de configuración, sin sus valores. Conservar la configuración privada por separado en un almacén seguro. Un SHA256 permite detectar corrupción; no autentica un backup frente a alguien que pueda modificar también el manifiesto. Guardar las copias fuera del equipo con protección adecuada sigue siendo una tarea del operador.
+
+Configurar el entorno restaurado con `ConnectionStrings__Editorial` apuntando a la **base nueva**, `Storage__Root` y `Security__KeyDirectory` apuntando a los directorios restaurados. Reponer privadamente el hash del operador y la configuración OAuth. Arrancar primero aislado, comprobar sesión, semana, producciones, tareas, archivos y almacenamiento. No conectar dos trabajadores a la misma copia ni realizar publicaciones durante el ensayo. No se ha verificado recuperación en otra máquina, Linux ni volúmenes Docker.
+
+### Ensayo local desechable con autenticación
+
+`Start-LocalAcceptance.ps1` compila, crea una base aleatoria, aplica migraciones y sirve el frontend empaquetado en `127.0.0.1:5080`. Requiere un PostgreSQL de pruebas ya iniciado; está diseñado para la instancia aislada local con usuario `postgres`. Usa una contraseña **pública y exclusiva de pruebas**; nunca usar ese perfil para datos operativos.
+
+```powershell
+.\scripts\Start-LocalAcceptance.ps1 -PgBin $env:TEST_PG_BIN -FfmpegBin (Split-Path $env:TEST_FFMPEG) -Dotnet dotnet
+$env:PLAYWRIGHT_BASE_URL = 'http://127.0.0.1:5080'
+cd web
+npm run test:e2e
+cd ..
+# Usar el instance.json que imprime el script. --pg-data debe ser exclusivamente de pruebas.
+python scripts/Test-LocalPersistence.py --instance '<acceptance-directory>/instance.json' --dotnet dotnet `
+  --pg-bin "$env:TEST_PG_BIN" --pg-data '<isolated-postgres-data>' --ffmpeg-bin '<ffmpeg-bin>' --isolated-postgres
+```
+
+El ensayo compara respuestas autenticadas, historias y hashes antes/después de reiniciar API y PostgreSQL, restaura en otra base/directorios y arranca esa copia. Solo usa medios técnicos de prueba. Conserva los datos para inspección; detener después el PID registrado en `instance.json` y la instancia PostgreSQL de pruebas. No elimina bases ni volúmenes existentes. Las E2E requieren una base de ensayo limpia al iniciar el recorrido y realizan el login real sin desactivar autenticación, CSRF ni el límite de intentos.
 
 ## Diagnóstico
 
@@ -84,4 +122,4 @@ Restaurar primero en una base y directorios nuevos y aislados; no sobrescribir u
 - Error de copia al compilar en Windows: detener el proceso API antes de reconstruir.
 - Sin acceso a Google: completar el recorrido manual permitido; no usar cookies ni endpoints privados.
 
-No se verificaron despliegues remotos, proxy TLS, Docker, restauración completa ni funcionamiento de una cuenta Google real. Cualquier despliegue privado remoto requiere HTTPS, configuración explícita del proxy/orígenes y revisión operativa adicional. No se desplegó infraestructura ni se incurrió en costes.
+No se verificaron despliegues remotos, proxy TLS, Docker ni funcionamiento de una cuenta Google real. La restauración Windows local sí tiene evidencia en la aceptación posterior. Cualquier despliegue privado remoto requiere HTTPS, configuración explícita del proxy/orígenes y revisión operativa adicional. No se desplegó infraestructura ni se incurrió en costes.

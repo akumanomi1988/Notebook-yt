@@ -2,7 +2,7 @@
 
 Centro editorial privado para un operador, un canal y siete nichos. NotebookLM es el único origen permitido para el vídeo canónico. La aplicación organiza temas, investigación, paquetes, tareas, archivos, revisión y publicación mediante las APIs oficiales de Google que estén disponibles y autorizadas.
 
-**Estado de aceptación: INCOMPLETE.** La implementación local y sus pruebas están ejecutadas. No se ha verificado una exportación genuina de NotebookLM ni operaciones reales de Google con esta cuenta. No confundir contratos simulados con integraciones verificadas en vivo. Consulta [el informe de implementación](doc/COMPLETE_PRODUCT_REPORT.md).
+**Estado de aceptación: FUNCTIONALLY COMPLETE WITH EXTERNAL VERIFICATION PENDING.** La aceptación local autenticada incluye compilaciones, pruebas, reinicios y restauración aislada. Siguen pendientes un vídeo genuino de NotebookLM, Google autorizado y ejecución Docker. No confundir contratos controlados con integraciones verificadas en vivo. Consulta [la aceptación operativa](doc/OPERATIONAL_ACCEPTANCE_REPORT.md) y [el informe de implementación anterior](doc/COMPLETE_PRODUCT_REPORT.md).
 
 ## Inicio local
 
@@ -76,7 +76,7 @@ dotnet build src/NotebookYt.Api
 dotnet test tests/NotebookYt.Tests --filter 'FullyQualifiedName~StudioRulesTests|FullyQualifiedName~ValidationTests|FullyQualifiedName~ProductionPolicyTests'
 ```
 
-Para toda la suite, configurar `NOTEBOOK_TEST_POSTGRES` con una instancia PostgreSQL aislada cuyo usuario pueda crear bases. Se crean bases aleatorias `notebook_test_<guid>` y se eliminan exclusivamente esas bases al finalizar. FFmpeg y FFprobe deben estar en PATH o indicarse con `TEST_FFMPEG` y `TEST_FFPROBE`.
+Para toda la suite, configurar `NOTEBOOK_TEST_POSTGRES` con una instancia PostgreSQL aislada cuyo usuario pueda crear bases. Se crean bases aleatorias `notebook_test_<guid>` y se eliminan exclusivamente esas bases al finalizar. FFmpeg y FFprobe deben estar en PATH o indicarse con `TEST_FFMPEG` y `TEST_FFPROBE`. En Windows, indicar también `TEST_PG_BIN` con el directorio de `pg_dump.exe`, `pg_restore.exe`, `psql.exe` y `createdb.exe` para la restauración real; ese caso comprueba ACL y DPAPI y se omite fuera de Windows.
 
 ```powershell
 dotnet test tests/NotebookYt.Tests
@@ -89,7 +89,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-E2E requiere API y Vite ya iniciados contra una base exclusiva de pruebas, con `Security__RequireAuthentication=false`. Modifica canal y nichos y crea datos de prueba; no usar datos de trabajo. Las pruebas de autenticación se ejecutan además con protección activada en TestHost.
+E2E requiere la instancia autenticada exclusiva de pruebas de `Start-LocalAcceptance.ps1`, con `Security__RequireAuthentication=true`. Usar `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5080` para el frontend empaquetado; el valor predeterminado `5173` permite probar Vite contra la misma API. La suite inicia sesión por la interfaz y conserva autenticación, CSRF y límites de intentos. Modifica canal y nichos y crea datos de prueba; no usar datos de trabajo. Consulta el procedimiento en [Operaciones](doc/OPERATIONS.md).
 
 Los archivos sintéticos se usan exclusivamente como fixtures técnicos en pruebas. Nunca acreditan procedencia real de NotebookLM ni aceptación externa. Los contratos de Google se prueban mediante HTTP controlado; no se realizan subidas reales en la suite.
 
