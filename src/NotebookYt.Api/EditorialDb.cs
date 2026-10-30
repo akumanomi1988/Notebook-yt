@@ -14,8 +14,9 @@ public sealed class EditorialDb(DbContextOptions<EditorialDb> options) : DbConte
     {
         model.Entity<Channel>().Property(x => x.Name).HasMaxLength(160);
         model.Entity<Channel>().Property(x => x.TimeZone).HasMaxLength(100);
+        model.Entity<ContentNiche>().HasOne<Channel>().WithMany().HasForeignKey(x => x.ChannelId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<ContentNiche>().HasIndex(x => new { x.ChannelId, x.Weekday }).IsUnique();
-        model.Entity<ContentNiche>().HasCheckConstraint("CK_Niche_Weekday", "\"Weekday\" BETWEEN 1 AND 7");
+        model.Entity<ContentNiche>().ToTable(t => t.HasCheckConstraint("CK_Niche_Weekday", "\"Weekday\" BETWEEN 1 AND 7"));
         model.Entity<ContentNiche>().Property(x => x.Name).HasMaxLength(160);
         model.Entity<ContentNiche>().Property(x => x.Description).HasMaxLength(2000);
         model.Entity<ContentNiche>().Property(x => x.Guidance).HasMaxLength(4000);

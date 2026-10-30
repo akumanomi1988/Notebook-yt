@@ -2,18 +2,38 @@ using Microsoft.EntityFrameworkCore;
 using NotebookYt.Api;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls("http://127.0.0.1:5080");
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(
+    new System.Text.Json.Serialization.JsonStringEnumConverter<ProductionStatus>(allowIntegerValues: false)));
 builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<EditorialDb>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Editorial")
         ?? throw new InvalidOperationException("ConnectionStrings:Editorial is required.")));
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseStatusCodePages();
+// Local single-operator API: reject cross-origin browser writes, including simple requests.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Headers.TryGetValue("Origin", out var origin) &&
+        origin != "http://127.0.0.1:5173" && origin != "http://localhost:5173")
+    {
+        await Results.Problem(statusCode: 403, detail: "Origin is not allowed.").ExecuteAsync(context);
+        return;
+    }
+    if (HttpMethods.IsGet(context.Request.Method)) { await next(context); return; }
+    var db = context.RequestServices.GetRequiredService<EditorialDb>();
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(74819321)");
+    await next(context);
+    if (context.Response.StatusCode < 400) await transaction.CommitAsync();
+});
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/api/channel", async (EditorialDb db) => await db.Channels.AsNoTracking().FirstOrDefaultAsync());
 app.MapPut("/api/channel", async (ChannelInput input, EditorialDb db) =>
 {
     if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Length > 160 ||
-        !TimeZoneInfo.GetSystemTimeZones().Any(t => t.Id == input.TimeZone))
+        !Validation.IsIanaTimeZone(input.TimeZone))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["channel"] = ["Valid name and IANA timezone are required."] });
     var channel = await db.Channels.FirstOrDefaultAsync();
     if (channel is null)
@@ -32,7 +52,7 @@ app.MapGet("/api/week", async (EditorialDb db) => await db.Niches.AsNoTracking()
 app.MapPut("/api/week/{weekday:int}", async (int weekday, NicheInput input, EditorialDb db) =>
 {
     if (weekday is < 1 or > 7 || string.IsNullOrWhiteSpace(input.Name) ||
-        input.Name.Length > 160 || input.Description.Length > 2000 || input.Guidance.Length > 4000)
+        input.Name.Length > 160 || input.Description is null || input.Guidance is null || input.Description.Length > 2000 || input.Guidance.Length > 4000)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["niche"] = ["Invalid weekday or niche fields."] });
     var niche = await db.Niches.SingleOrDefaultAsync(n => n.Weekday == weekday);
     if (niche is null) return Results.NotFound();
@@ -70,7 +90,7 @@ app.MapPut("/api/productions/{id:guid}", async (Guid id, ProductionEdit input, E
 {
     var production = await db.Productions.FindAsync(id);
     if (production is null) return Results.NotFound();
-    if (production.Status == ProductionStatus.Cancelled) return Results.Conflict(new { error = "Cancelled productions are immutable." });
+    if (production.Status == ProductionStatus.Cancelled) return Results.Problem(statusCode: 409, detail: "Cancelled productions are immutable.");
     if (string.IsNullOrWhiteSpace(input.Topic) || input.Topic.Length > 300 || input.PlannedDate == default)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["production"] = ["Invalid topic or date."] });
     production.Topic = input.Topic.Trim();
@@ -82,6 +102,8 @@ app.MapPost("/api/productions/{id:guid}/status", async (Guid id, StatusInput inp
 {
     var production = await db.Productions.FindAsync(id);
     if (production is null) return Results.NotFound();
+    if (input.Status is null || !Enum.IsDefined(input.Status.Value))
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["status"] = ["A valid status is required."] });
     var from = production.Status;
     var allowed = (from, input.Status) switch
     {
@@ -91,19 +113,21 @@ app.MapPost("/api/productions/{id:guid}/status", async (Guid id, StatusInput inp
         (ProductionStatus.Blocked, ProductionStatus.Draft or ProductionStatus.BriefReady or ProductionStatus.AwaitingNotebook or ProductionStatus.Cancelled) => true,
         _ => false
     };
-    if (!allowed) return Results.Conflict(new { error = "Invalid status transition." });
-    production.Status = input.Status;
-    db.StatusHistory.Add(new ProductionStatusHistory { ProductionId = id, From = from, To = input.Status });
+    if (!allowed) return Results.Problem(statusCode: 409, detail: "Invalid status transition.");
+    production.Status = input.Status.Value;
+    db.StatusHistory.Add(new ProductionStatusHistory { ProductionId = id, From = from, To = input.Status.Value });
     await db.SaveChangesAsync();
     return Results.Ok(production);
 });
 app.MapPut("/api/productions/{id:guid}/notebook", async (Guid id, NotebookInput input, EditorialDb db) =>
 {
-    if (!Uri.TryCreate(input.Url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
-        uri.Host is not ("notebooklm.google.com" or "notebook.google.com" or "notebook.cloud.google.com" or "notebook.cloud.google") ||
-        input.Url.Length > 2048 || !uri.AbsolutePath.Contains("notebook", StringComparison.OrdinalIgnoreCase))
+    if (!Validation.IsNotebookUrl(input.Url))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["url"] = ["A valid HTTPS NotebookLM notebook URL is required."] });
-    if (!await db.Productions.AnyAsync(p => p.Id == id)) return Results.NotFound();
+    var production = await db.Productions.FindAsync(id);
+    if (production is null) return Results.NotFound();
+    if (production.Status == ProductionStatus.Cancelled)
+        return Results.Problem(statusCode: 409, detail: "Cancelled productions are immutable.");
+    var uri = new Uri(input.Url);
     var reference = await db.NotebookReferences.SingleOrDefaultAsync(r => r.ProductionId == id);
     if (reference is null) { reference = new NotebookReference { ProductionId = id }; db.NotebookReferences.Add(reference); }
     reference.Url = uri.AbsoluteUri;
@@ -117,5 +141,5 @@ public record ChannelInput(string Name, string TimeZone);
 public record NicheInput(string Name, string Description, string Guidance, bool Enabled);
 public record ProductionInput(Guid ContentNicheId, string Topic, DateOnly PlannedDate);
 public record ProductionEdit(string Topic, DateOnly PlannedDate);
-public record StatusInput(ProductionStatus Status);
+public record StatusInput(ProductionStatus? Status);
 public record NotebookInput(string Url);
