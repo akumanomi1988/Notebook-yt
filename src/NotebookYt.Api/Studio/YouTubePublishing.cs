@@ -70,6 +70,8 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct); var id = body.GetProperty("id").GetString()!;
         if (!Regex.IsMatch(id, "^[A-Za-z0-9_-]{6,100}$")) throw new StudioException(502, "Google no devolvió un vídeo válido.");
         upload.VideoId = id; upload.Status = "Uploaded"; upload.LastVerifiedAtUtc = DateTime.UtcNow;
+        var artifact = await db.Set<MediaArtifact>().FindAsync([upload.ArtifactId], ct) ?? throw new StudioException(409, "Falta el archivo aprobado.");
+        upload.BytesConfirmed = artifact.SizeBytes;
         upload.LastError = "";
         var w = await StudioRules.Workspace(db, upload.ProductionId); w.Stage = "Uploaded";
         StudioRules.Event(db, upload.ProductionId, "YouTubeUploadConfirmed", id);
@@ -113,6 +115,8 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
         if (state is "failed" or "rejected" or "deleted") { upload.Status = "NeedsAttention"; throw new StudioException(409, "YouTube rechazó o eliminó el vídeo. Revisa su panel."); }
         upload.Status = state == "processed" && status.GetProperty("privacyStatus").GetString() == "public" ? "Published" : status.TryGetProperty("publishAt", out _) ? "Scheduled" : "Uploaded";
         upload.LastVerifiedAtUtc = DateTime.UtcNow; (await StudioRules.Workspace(db, upload.ProductionId)).Stage = upload.Status;
+        if (state is "processed" or "uploaded")
+            upload.BytesConfirmed = (await db.Set<MediaArtifact>().FindAsync([upload.ArtifactId], ct))?.SizeBytes ?? upload.BytesConfirmed;
         upload.LastError = "";
         StudioRules.Event(db, upload.ProductionId, "YouTubeStateVerified", upload.Status);
         var metadata = JsonSerializer.Deserialize<PublicationSnapshot>(upload.MetadataSnapshot)!;
@@ -127,6 +131,41 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
     }
     public static void MapYouTube(WebApplication app)
     {
+        app.MapGet("/api/studio/uploads/{id:guid}/verification", async (Guid id, EditorialDb db, GoogleAuthorization google, CancellationToken ct) =>
+        {
+            var upload = await db.Set<YouTubeUpload>().FindAsync([id], ct) ?? throw new StudioException(404, "Subida inexistente.");
+            if (upload.VideoId.Length == 0) throw new StudioException(409, "La subida aún no tiene un vídeo confirmado.");
+            using var response = await google.Send(HttpMethod.Get, "https://www.googleapis.com/youtube/v3/videos?part=snippet,status,processingDetails&id=" + Uri.EscapeDataString(upload.VideoId), "YouTube", null, ct);
+            await Ensure(response);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var items = body.GetProperty("items");
+            if (items.GetArrayLength() != 1) throw new StudioException(409, "YouTube no devuelve el vídeo esperado.");
+            var video = items[0]; var snippet = video.GetProperty("snippet"); var status = video.GetProperty("status");
+            var connection = await db.Set<GoogleConnection>().SingleAsync(c => c.Kind == "YouTube", ct);
+            if (snippet.GetProperty("channelId").GetString() != connection.ExternalChannelId) throw new StudioException(409, "El vídeo pertenece a otro canal.");
+            var expected = JsonSerializer.Deserialize<PublicationSnapshot>(upload.MetadataSnapshot)!;
+            string Read(JsonElement element, string property) => element.TryGetProperty(property, out var value) ? value.GetString() ?? "" : "";
+            var tags = snippet.TryGetProperty("tags", out var values) ? values.EnumerateArray().Select(v => v.GetString() ?? "").ToArray() : [];
+            bool? syntheticMediaDeclared = status.TryGetProperty("containsSyntheticMedia", out var declaredSynthetic) ? declaredSynthetic.GetBoolean() : null;
+            var checks = new Dictionary<string, bool?> {
+                ["title"] = Read(snippet, "title") == expected.Title,
+                ["description"] = Read(snippet, "description").Replace("\r\n", "\n") == expected.Description.Replace("\r\n", "\n"),
+                ["tags"] = tags.ToHashSet(StringComparer.Ordinal).SetEquals(expected.Tags),
+                ["category"] = Read(snippet, "categoryId") == expected.CategoryId,
+                ["language"] = Read(snippet, "defaultLanguage") == expected.Language,
+                ["audience"] = status.TryGetProperty("selfDeclaredMadeForKids", out var kids) && kids.GetBoolean() == expected.MadeForKids,
+                ["syntheticMedia"] = syntheticMediaDeclared is null ? null : syntheticMediaDeclared == expected.ContainsSyntheticMedia,
+                ["privacy"] = Read(status, "privacyStatus") == (expected.PublishAtUtc is null ? expected.Visibility : "private")
+            };
+            return Results.Ok(new { videoId = upload.VideoId, channelId = connection.ExternalChannelId, channelName = connection.DisplayName,
+                title = Read(snippet, "title"), description = Read(snippet, "description"), tags, privacy = Read(status, "privacyStatus"),
+                syntheticMediaDeclared,
+                uploadStatus = Read(status, "uploadStatus"), processingStatus = video.TryGetProperty("processingDetails", out var processing) ? Read(processing, "processingStatus") : "unknown",
+                thumbnails = snippet.TryGetProperty("thumbnails", out var thumbnails) ? (JsonElement?)thumbnails.Clone() : null,
+                checks, unverifiedFields = checks.Where(pair => pair.Value is null).Select(pair => pair.Key).ToArray(),
+                matchesApprovedMetadata = checks.Values.Any(value => value == false) ? false : checks.Values.Any(value => value is null) ? (bool?)null : true,
+                checkedAtUtc = DateTime.UtcNow });
+        });
         app.MapPost("/api/studio/productions/{id:guid}/upload", async (Guid id, PublicationConsent consent, EditorialDb db, MediaStorage storage) =>
         {
             var existing = await db.Set<YouTubeUpload>().SingleOrDefaultAsync(u => u.ProductionId == id); if (existing is not null) return Results.Ok(existing);

@@ -231,6 +231,7 @@ public class GoogleAdapterContractTests(PostgresFixture fixture) : IClassFixture
             var adapter = new YouTubePublishing(db, google, storage); var job = new BackgroundJob { ProductionId = id, ResourceId = upload.Id, Kind = "UploadYouTube" };
             await adapter.Process(job, CancellationToken.None); await adapter.Process(job, CancellationToken.None);
             Assert.Equal(1, postCount); Assert.Equal(2, putCount); Assert.Equal("Uploaded", upload.Status); Assert.Equal("testvideo01", upload.VideoId);
+            Assert.Equal(saved.Length, upload.BytesConfirmed);
         }
         finally { foreach (var file in Directory.EnumerateFiles(root)) File.Delete(file); Directory.Delete(root); }
     }

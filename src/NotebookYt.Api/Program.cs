@@ -32,7 +32,12 @@ app.UseStatusCodePages();
 if (Directory.Exists(Path.Combine(app.Environment.ContentRootPath, "wwwroot")))
 {
     app.UseDefaultFiles();
-    app.UseStaticFiles();
+    app.UseStaticFiles(new StaticFileOptions {
+        OnPrepareResponse = context => {
+            if (context.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+                context.Context.Response.Headers.CacheControl = "no-cache";
+        }
+    });
 }
 app.Use(async (context, next) =>
 {

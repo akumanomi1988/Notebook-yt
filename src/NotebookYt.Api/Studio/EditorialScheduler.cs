@@ -27,12 +27,25 @@ public static class EditorialScheduler
                     PublishAtUtc = StudioRules.ResolveLocalTime(date, settings.PublishingTime, channel.TimeZone) };
                 db.Add(slot); slots.Add(slot);
             }
-            if (slot.ProductionId is not null || slot.PublishAtUtc <= now) continue;
+            if (slot.ProductionId is Guid existingId)
+            {
+                var existing = await db.Set<ProductionWorkspace>().FindAsync(existingId);
+                // A local planning slot must not turn a private upload into a public publication schedule.
+                if (existing is not null && existing.Visibility != "public" && existing.PublishAtUtc == slot.PublishAtUtc && existing.ApprovedAtUtc is null
+                    && !await db.Set<YouTubeUpload>().AnyAsync(u => u.ProductionId == existingId))
+                {
+                    existing.PublishAtUtc = null;
+                    StudioRules.Event(db, existingId, "PrivateScheduleAligned", "Conservado el turno editorial; eliminada la fecha pública incompatible con la visibilidad privada u oculta.");
+                }
+                continue;
+            }
+            if (slot.PublishAtUtc <= now) continue;
             var topic = await db.Set<EditorialTopic>().Where(t => t.ContentNicheId == niche.Id && t.Status == "Approved" && t.ProductionId == null).OrderByDescending(t => t.Priority).ThenBy(t => t.CreatedAtUtc).FirstOrDefaultAsync();
             if (topic is null) continue;
             var production = new Production { ChannelId = channel.Id, ContentNicheId = niche.Id, NicheNameSnapshot = niche.Name, Topic = topic.Title, PlannedDate = date };
             db.Add(production); db.Add(new ProductionStatusHistory { ProductionId = production.Id, To = ProductionStatus.Draft }); topic.ProductionId = production.Id; slot.ProductionId = production.Id; slot.Status = "Planned";
-            await db.SaveChangesAsync(); var w = await StudioEndpoints.OpenWorkspace(db, production, topic.Id); w.PublishAtUtc = slot.PublishAtUtc;
+            await db.SaveChangesAsync(); var w = await StudioEndpoints.OpenWorkspace(db, production, topic.Id);
+            w.PublishAtUtc = w.Visibility == "public" ? slot.PublishAtUtc : null;
             StudioRules.Event(db, production.Id, "ScheduleAssigned", $"{date} {slot.LocalTime} {channel.TimeZone} = {slot.PublishAtUtc:O}"); await db.SaveChangesAsync();
         }
         await db.SaveChangesAsync();
@@ -49,7 +62,8 @@ public static class EditorialScheduler
             if (dateUtc <= DateTime.UtcNow) throw new StudioException(400, "Selecciona un horario futuro.");
             if (slot.ProductionId is Guid pId)
             {
-                var p = await StudioRules.Editable(db, pId); var w = await StudioRules.Workspace(db, pId); p.PlannedDate = input.Date; p.ModifiedAtUtc = DateTime.UtcNow; w.PublishAtUtc = dateUtc; w.ApprovedAtUtc = null;
+                var p = await StudioRules.Editable(db, pId); var w = await StudioRules.Workspace(db, pId); p.PlannedDate = input.Date; p.ModifiedAtUtc = DateTime.UtcNow;
+                w.PublishAtUtc = w.Visibility == "public" ? dateUtc : null; w.ApprovedAtUtc = null;
                 if (w.Stage == "ReadyForUpload") w.Stage = "QualityReview";
             }
             var day = input.Date.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)input.Date.DayOfWeek;
