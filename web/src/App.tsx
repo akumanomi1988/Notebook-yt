@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { transitions } from './workflow';
+import { apiRequest as request } from './client';
+import { Studio } from './Studio';
 
 type Channel = { name: string; timeZone: string };
 type Niche = { id: string; weekday: number; name: string; description: string; guidance: string; enabled: boolean };
@@ -7,15 +9,6 @@ type Production = { id: string; contentNicheId: string; nicheNameSnapshot: strin
 type Detail = { production: Production; history: { from: string | null; to: string; changedAtUtc: string }[]; notebook: { url: string } | null };
 const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const actions: Record<string, string> = { PrepareBrief: 'Preparar el briefing', PrepareNotebook: 'Preparar NotebookLM manualmente', ReviewNotebook: 'Registrar o revisar el notebook', ResolveBlock: 'Resolver bloqueo', None: 'Ninguna: cancelada' };
-
-async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch('/api' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.errors ? Object.values(data.errors).flat().join(' ') : data.detail ?? `Error HTTP ${response.status}. Reintenta la operación.`);
-  }
-  return response.json() as Promise<T>;
-}
 
 type SaveOperation = (operation: () => Promise<void>) => Promise<void>;
 function NicheEditor({ niche, saving, save }: { niche: Niche; saving: boolean; save: (n: Niche) => void }) {
@@ -60,7 +53,7 @@ function ProductionEditor({ detail, saving, run, reload }: { detail: Detail; sav
 }
 
 export function App() {
-  const [tab, setTab] = useState<'week' | 'productions'>('week');
+  const [tab, setTab] = useState<'week' | 'productions' | 'studio'>('week');
   const [channel, setChannel] = useState<Channel>({ name: '', timeZone: 'Etc/UTC' });
   const [niches, setNiches] = useState<Niche[]>([]);
   const [productions, setProductions] = useState<Production[]>([]);
@@ -74,6 +67,7 @@ export function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
+  const creationRequest = useRef({ body: '', key: '' });
   const selectionVersion = useRef(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -103,15 +97,17 @@ export function App() {
   const open = (id: string) => { setSelected(null); setError(''); void loadDetail(id).catch(e => setError(String(e.message ?? e))); };
   const reload = async (id: string) => { await refresh(); await loadDetail(id); };
   const create = (e: FormEvent) => { e.preventDefault(); void run(async () => {
-    const p = await request<Production>('/productions', 'POST', { contentNicheId: nicheId, topic, plannedDate });
+    const body = { contentNicheId: nicheId, topic, plannedDate };
+    if (creationRequest.current.body !== JSON.stringify(body)) creationRequest.current = { body: JSON.stringify(body), key: crypto.randomUUID() };
+    const p = await request<Production>('/productions', 'POST', body, { 'Idempotency-Key': creationRequest.current.key });
     setTopic(''); await reload(p.id);
   }); };
   const visible = productions.filter(p => (!statusFilter || p.status === statusFilter) && (!nicheFilter || p.contentNicheId === nicheFilter));
-  return <main><header><h1>Notebook-yt</h1><p>Gestión editorial local · NotebookLM manual</p><nav aria-label="Secciones editoriales"><button aria-pressed={tab === 'week'} onClick={() => setTab('week')}>Semana editorial</button><button aria-pressed={tab === 'productions'} onClick={() => setTab('productions')}>Producciones</button></nav></header>
+  return <main><header><h1>Notebook-yt</h1><p>Gestión editorial local · NotebookLM manual</p><nav aria-label="Secciones editoriales"><button aria-pressed={tab === 'week'} onClick={() => setTab('week')}>Semana editorial</button><button aria-pressed={tab === 'productions'} onClick={() => setTab('productions')}>Producciones</button><button aria-pressed={tab === 'studio'} onClick={() => setTab('studio')}>Centro de producción</button></nav></header>
     {loading && <p role="status">Cargando datos editoriales…</p>}
     {error && <div role="alert" className="error">{error}<button disabled={saving} onClick={() => void run(refresh)}>Reintentar carga</button></div>}
     {saving && <p role="status">Guardando cambios…</p>}{notice && <p role="status">{notice}</p>}
-    {!loading && (tab === 'week' ? <>
+    {!loading && (tab === 'studio' ? <Studio /> : tab === 'week' ? <>
       <section><h2>Configuración del canal</h2><form onSubmit={e => { e.preventDefault(); void run(async () => { await request('/channel', 'PUT', channel); await refresh(); }); }}>
         <fieldset disabled={saving}><legend>Canal local</legend><label>Nombre del canal<input required maxLength={160} value={channel.name} onChange={e => setChannel({ ...channel, name: e.target.value })} /></label>
           <label>Zona horaria IANA<input required maxLength={100} value={channel.timeZone} onChange={e => setChannel({ ...channel, timeZone: e.target.value })} placeholder="Europe/Madrid" /></label>

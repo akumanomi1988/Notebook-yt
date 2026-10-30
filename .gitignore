@@ -11,3 +11,11 @@
 
 **/test-results/
 **/playwright-report/
+.local/
+data/
+media/
+*.blob
+*.partial
+*.mp4
+*.pfx
+*.key
