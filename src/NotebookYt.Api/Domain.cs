@@ -27,6 +27,7 @@ public sealed class Production
     public DateOnly PlannedDate { get; set; }
     public ProductionStatus Status { get; set; } = ProductionStatus.Draft;
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime ModifiedAtUtc { get; set; } = DateTime.UtcNow;
 }
 public sealed class NotebookReference
 {

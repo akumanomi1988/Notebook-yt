@@ -12,6 +12,9 @@ public sealed class EditorialDb(DbContextOptions<EditorialDb> options) : DbConte
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        model.Entity<Channel>().Property<bool>("Singleton").HasDefaultValue(true).HasSentinel(false);
+        model.Entity<Channel>().HasIndex("Singleton").IsUnique();
+        model.Entity<Channel>().ToTable(t => t.HasCheckConstraint("CK_Channel_Singleton", "\"Singleton\" = true"));
         model.Entity<Channel>().Property(x => x.Name).HasMaxLength(160);
         model.Entity<Channel>().Property(x => x.TimeZone).HasMaxLength(100);
         model.Entity<ContentNiche>().HasOne<Channel>().WithMany().HasForeignKey(x => x.ChannelId).OnDelete(DeleteBehavior.Restrict);
@@ -22,8 +25,10 @@ public sealed class EditorialDb(DbContextOptions<EditorialDb> options) : DbConte
         model.Entity<ContentNiche>().Property(x => x.Guidance).HasMaxLength(4000);
         model.Entity<Production>().Property(x => x.Topic).HasMaxLength(300);
         model.Entity<Production>().Property(x => x.NicheNameSnapshot).HasMaxLength(160);
+        model.Entity<Production>().ToTable(t => t.HasCheckConstraint("CK_Production_Status", "\"Status\" IN ('Draft','BriefReady','AwaitingNotebook','Blocked','Cancelled')"));
         model.Entity<Production>().Property(x => x.Status).HasConversion<string>().HasMaxLength(40);
-        model.Entity<Production>().HasOne<ContentNiche>().WithMany().HasForeignKey(x => x.ContentNicheId).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<ContentNiche>().HasAlternateKey(x => new { x.Id, x.ChannelId });
+        model.Entity<Production>().HasOne<ContentNiche>().WithMany().HasForeignKey(x => new { x.ContentNicheId, x.ChannelId }).HasPrincipalKey(x => new { x.Id, x.ChannelId }).OnDelete(DeleteBehavior.Restrict);
         model.Entity<Production>().HasOne<Channel>().WithMany().HasForeignKey(x => x.ChannelId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<NotebookReference>().HasIndex(x => x.ProductionId).IsUnique();
         model.Entity<NotebookReference>().Property(x => x.Url).HasMaxLength(2048);

@@ -25,17 +25,30 @@ app.Use(async (context, next) =>
     var db = context.RequestServices.GetRequiredService<EditorialDb>();
     await using var transaction = await db.Database.BeginTransactionAsync();
     await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(74819321)");
-    await next(context);
-    if (context.Response.StatusCode < 400) await transaction.CommitAsync();
+    var originalBody = context.Response.Body;
+    await using var buffer = new MemoryStream();
+    context.Response.Body = buffer;
+    try
+    {
+        await next(context);
+        if (context.Response.StatusCode < 400) await transaction.CommitAsync();
+        buffer.Position = 0;
+        await buffer.CopyToAsync(originalBody);
+    }
+    finally { context.Response.Body = originalBody; }
 });
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-app.MapGet("/api/channel", async (EditorialDb db) => await db.Channels.AsNoTracking().FirstOrDefaultAsync());
+app.MapGet("/api/channel", async (EditorialDb db) =>
+{
+    var channel = await db.Channels.AsNoTracking().SingleOrDefaultAsync();
+    return channel is null ? Results.Text("null", "application/json") : Results.Ok(channel.ToResponse());
+});
 app.MapPut("/api/channel", async (ChannelInput input, EditorialDb db) =>
 {
     if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Length > 160 ||
         !Validation.IsIanaTimeZone(input.TimeZone))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["channel"] = ["Valid name and IANA timezone are required."] });
-    var channel = await db.Channels.FirstOrDefaultAsync();
+    var channel = await db.Channels.SingleOrDefaultAsync();
     if (channel is null)
     {
         channel = new Channel();
@@ -46,9 +59,9 @@ app.MapPut("/api/channel", async (ChannelInput input, EditorialDb db) =>
     channel.Name = input.Name.Trim();
     channel.TimeZone = input.TimeZone;
     await db.SaveChangesAsync();
-    return Results.Ok(channel);
+    return Results.Ok(channel.ToResponse());
 });
-app.MapGet("/api/week", async (EditorialDb db) => await db.Niches.AsNoTracking().OrderBy(n => n.Weekday).ToListAsync());
+app.MapGet("/api/week", async (EditorialDb db) => (await db.Niches.AsNoTracking().OrderBy(n => n.Weekday).ToListAsync()).Select(n => n.ToResponse()));
 app.MapPut("/api/week/{weekday:int}", async (int weekday, NicheInput input, EditorialDb db) =>
 {
     if (weekday is < 1 or > 7 || string.IsNullOrWhiteSpace(input.Name) ||
@@ -61,10 +74,20 @@ app.MapPut("/api/week/{weekday:int}", async (int weekday, NicheInput input, Edit
     niche.Guidance = input.Guidance;
     niche.Enabled = input.Enabled;
     await db.SaveChangesAsync();
-    return Results.Ok(niche);
+    return Results.Ok(niche.ToResponse());
 });
-app.MapGet("/api/productions", async (EditorialDb db) =>
-    await db.Productions.AsNoTracking().OrderByDescending(p => p.CreatedAtUtc).ToListAsync());
+app.MapGet("/api/productions", async (string? status, Guid? nicheId, EditorialDb db) =>
+{
+    var query = db.Productions.AsNoTracking();
+    if (status is not null)
+    {
+        if (!Enum.TryParse<ProductionStatus>(status, out var parsed) || !Enum.IsDefined(parsed) || status != parsed.ToString())
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["status"] = ["Invalid status filter."] });
+        query = query.Where(p => p.Status == parsed);
+    }
+    if (nicheId is not null) query = query.Where(p => p.ContentNicheId == nicheId);
+    return Results.Ok((await query.OrderByDescending(p => p.CreatedAtUtc).ToListAsync()).Select(p => p.ToResponse()));
+});
 app.MapPost("/api/productions", async (ProductionInput input, EditorialDb db) =>
 {
     if (string.IsNullOrWhiteSpace(input.Topic) || input.Topic.Length > 300 || input.PlannedDate == default)
@@ -76,15 +99,15 @@ app.MapPost("/api/productions", async (ProductionInput input, EditorialDb db) =>
     db.Productions.Add(production);
     db.StatusHistory.Add(new ProductionStatusHistory { ProductionId = production.Id, To = ProductionStatus.Draft });
     await db.SaveChangesAsync();
-    return Results.Created($"/api/productions/{production.Id}", production);
+    return Results.Created($"/api/productions/{production.Id}", production.ToResponse());
 });
 app.MapGet("/api/productions/{id:guid}", async (Guid id, EditorialDb db) =>
 {
     var production = await db.Productions.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id);
     if (production is null) return Results.NotFound();
-    return Results.Ok(new { production, history = await db.StatusHistory.AsNoTracking()
-        .Where(h => h.ProductionId == id).OrderBy(h => h.ChangedAtUtc).ToListAsync(),
-        notebook = await db.NotebookReferences.AsNoTracking().SingleOrDefaultAsync(r => r.ProductionId == id) });
+    return Results.Ok(new ProductionDetail(production.ToResponse(),
+        (await db.StatusHistory.AsNoTracking().Where(h => h.ProductionId == id).OrderBy(h => h.ChangedAtUtc).ToListAsync()).Select(h => h.ToResponse()).ToList(),
+        (await db.NotebookReferences.AsNoTracking().SingleOrDefaultAsync(r => r.ProductionId == id))?.ToResponse()));
 });
 app.MapPut("/api/productions/{id:guid}", async (Guid id, ProductionEdit input, EditorialDb db) =>
 {
@@ -95,8 +118,9 @@ app.MapPut("/api/productions/{id:guid}", async (Guid id, ProductionEdit input, E
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["production"] = ["Invalid topic or date."] });
     production.Topic = input.Topic.Trim();
     production.PlannedDate = input.PlannedDate;
+    production.ModifiedAtUtc = DateTime.UtcNow;
     await db.SaveChangesAsync();
-    return Results.Ok(production);
+    return Results.Ok(production.ToResponse());
 });
 app.MapPost("/api/productions/{id:guid}/status", async (Guid id, StatusInput input, EditorialDb db) =>
 {
@@ -105,19 +129,13 @@ app.MapPost("/api/productions/{id:guid}/status", async (Guid id, StatusInput inp
     if (input.Status is null || !Enum.IsDefined(input.Status.Value))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["status"] = ["A valid status is required."] });
     var from = production.Status;
-    var allowed = (from, input.Status) switch
-    {
-        (ProductionStatus.Draft, ProductionStatus.BriefReady or ProductionStatus.Blocked or ProductionStatus.Cancelled) => true,
-        (ProductionStatus.BriefReady, ProductionStatus.AwaitingNotebook or ProductionStatus.Blocked or ProductionStatus.Cancelled) => true,
-        (ProductionStatus.AwaitingNotebook, ProductionStatus.Blocked or ProductionStatus.Cancelled) => true,
-        (ProductionStatus.Blocked, ProductionStatus.Draft or ProductionStatus.BriefReady or ProductionStatus.AwaitingNotebook or ProductionStatus.Cancelled) => true,
-        _ => false
-    };
+    var allowed = ProductionPolicy.CanTransition(from, input.Status.Value);
     if (!allowed) return Results.Problem(statusCode: 409, detail: "Invalid status transition.");
     production.Status = input.Status.Value;
+    production.ModifiedAtUtc = DateTime.UtcNow;
     db.StatusHistory.Add(new ProductionStatusHistory { ProductionId = id, From = from, To = input.Status.Value });
     await db.SaveChangesAsync();
-    return Results.Ok(production);
+    return Results.Ok(production.ToResponse());
 });
 app.MapPut("/api/productions/{id:guid}/notebook", async (Guid id, NotebookInput input, EditorialDb db) =>
 {
@@ -130,16 +148,13 @@ app.MapPut("/api/productions/{id:guid}/notebook", async (Guid id, NotebookInput 
     var uri = new Uri(input.Url);
     var reference = await db.NotebookReferences.SingleOrDefaultAsync(r => r.ProductionId == id);
     if (reference is null) { reference = new NotebookReference { ProductionId = id }; db.NotebookReferences.Add(reference); }
+    production.ModifiedAtUtc = DateTime.UtcNow;
     reference.Url = uri.AbsoluteUri;
     reference.RegisteredAtUtc = DateTime.UtcNow;
     await db.SaveChangesAsync();
-    return Results.Ok(reference);
+    return Results.Ok(reference.ToResponse());
 });
 app.Run();
 
-public record ChannelInput(string Name, string TimeZone);
-public record NicheInput(string Name, string Description, string Guidance, bool Enabled);
-public record ProductionInput(Guid ContentNicheId, string Topic, DateOnly PlannedDate);
-public record ProductionEdit(string Topic, DateOnly PlannedDate);
-public record StatusInput(ProductionStatus? Status);
-public record NotebookInput(string Url);
+
+public partial class Program { }

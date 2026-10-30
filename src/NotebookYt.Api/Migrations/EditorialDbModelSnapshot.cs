@@ -33,6 +33,11 @@ namespace NotebookYt.Api.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
+                    b.Property<bool>("Singleton")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("TimeZone")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -40,7 +45,13 @@ namespace NotebookYt.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Channels");
+                    b.HasIndex("Singleton")
+                        .IsUnique();
+
+                    b.ToTable("Channels", t =>
+                        {
+                            t.HasCheckConstraint("CK_Channel_Singleton", "\"Singleton\" = true");
+                        });
                 });
 
             modelBuilder.Entity("NotebookYt.Api.ContentNiche", b =>
@@ -124,6 +135,9 @@ namespace NotebookYt.Api.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime>("ModifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("NicheNameSnapshot")
                         .IsRequired()
                         .HasMaxLength(160)
@@ -146,9 +160,12 @@ namespace NotebookYt.Api.Migrations
 
                     b.HasIndex("ChannelId");
 
-                    b.HasIndex("ContentNicheId");
+                    b.HasIndex("ContentNicheId", "ChannelId");
 
-                    b.ToTable("Productions");
+                    b.ToTable("Productions", t =>
+                        {
+                            t.HasCheckConstraint("CK_Production_Status", "\"Status\" IN ('Draft','BriefReady','AwaitingNotebook','Blocked','Cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("NotebookYt.Api.ProductionStatusHistory", b =>
@@ -205,7 +222,8 @@ namespace NotebookYt.Api.Migrations
 
                     b.HasOne("NotebookYt.Api.ContentNiche", null)
                         .WithMany()
-                        .HasForeignKey("ContentNicheId")
+                        .HasForeignKey("ContentNicheId", "ChannelId")
+                        .HasPrincipalKey("Id", "ChannelId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

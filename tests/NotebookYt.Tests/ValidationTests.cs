@@ -1,4 +1,4 @@
-﻿using NotebookYt.Api;
+using NotebookYt.Api;
 namespace NotebookYt.Tests;
 public class ValidationTests
 {
@@ -15,6 +15,9 @@ public class ValidationTests
     [InlineData("https://notebooklm.google.com.evil.test/notebook/id", false)]
     [InlineData("https://user@notebooklm.google.com/notebook/id", false)]
     [InlineData("https://notebooklm.google.com:999/notebook/id", false)]
+    [InlineData("https://notebook.cloud.google.com/global/notebook/id?project=123", true)]
+    [InlineData("https://notebook.cloud.google/eu/notebook/id?project=123", true)]
+    [InlineData("https://notebook.cloud.google.com/notebook/id", false)]
     [InlineData(null, false)]
     public void ValidatesNotebookUrls(string? value, bool expected) => Assert.Equal(expected, Validation.IsNotebookUrl(value));
 }
