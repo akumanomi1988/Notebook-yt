@@ -12,6 +12,7 @@ public sealed class EditorialDb(DbContextOptions<EditorialDb> options) : DbConte
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        Studio.StudioModel.Configure(model);
         model.Entity<Channel>().Property<bool>("Singleton").HasDefaultValue(true).HasSentinel(false);
         model.Entity<Channel>().HasIndex("Singleton").IsUnique();
         model.Entity<Channel>().ToTable(t => t.HasCheckConstraint("CK_Channel_Singleton", "\"Singleton\" = true"));

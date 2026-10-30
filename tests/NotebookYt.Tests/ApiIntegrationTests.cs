@@ -16,9 +16,14 @@ public sealed class PostgresFixture : IAsyncLifetime
     public string ConnectionString { get; private set; } = "";
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
+    public string StorageRoot { get; } = Path.Combine(Path.GetTempPath(), "notebook-tests-" + Guid.NewGuid().ToString("N"));
 
     public WebApplicationFactory<Program> CreateFactory() => new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-        builder.UseSetting("ConnectionStrings:Editorial", ConnectionString).UseEnvironment("Production"));
+        builder.UseSetting("ConnectionStrings:Editorial", ConnectionString).UseSetting("Storage:Root", StorageRoot)
+            .UseSetting("Security:KeyDirectory", Path.Combine(StorageRoot, "keys"))
+            .UseSetting("Media:ffmpegPath", Environment.GetEnvironmentVariable("TEST_FFMPEG") ?? "ffmpeg")
+            .UseSetting("Media:ffprobePath", Environment.GetEnvironmentVariable("TEST_FFPROBE") ?? "ffprobe")
+            .UseSetting("Security:RequireAuthentication", "false").UseSetting("Worker:Enabled", "false").UseEnvironment("Production"));
 
     public async Task InitializeAsync()
     {
@@ -45,6 +50,8 @@ public sealed class PostgresFixture : IAsyncLifetime
         await connection.OpenAsync();
         await using var drop = new NpgsqlCommand($"DROP DATABASE \"{database}\" WITH (FORCE)", connection);
         await drop.ExecuteNonQueryAsync();
+        var full = Path.GetFullPath(StorageRoot);
+        if (Directory.Exists(full) && full.StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase) && Path.GetFileName(full).StartsWith("notebook-tests-", StringComparison.Ordinal)) Directory.Delete(full, true);
     }
 }
 

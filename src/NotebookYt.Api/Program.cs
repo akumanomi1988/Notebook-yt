@@ -1,17 +1,46 @@
 using Microsoft.EntityFrameworkCore;
 using NotebookYt.Api;
+using NotebookYt.Api.Studio;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://127.0.0.1:5080");
+builder.Configuration.AddKeyPerFile("/run/secrets", optional: true);
+builder.WebHost.UseUrls(builder.Configuration["Hosting:Urls"] ?? "http://127.0.0.1:5080");
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(
     new System.Text.Json.Serialization.JsonStringEnumConverter<ProductionStatus>(allowIntegerValues: false)));
 builder.Services.AddProblemDetails();
+builder.AddOperatorSecurity();
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1024L * 1024 * 1024);
+builder.Services.AddSingleton<MediaStorage>();
+builder.Services.AddScoped<GoogleAuthorization>();
+builder.Services.AddScoped<NotebookIntegration>();
+builder.Services.AddScoped<YouTubePublishing>();
+builder.Services.AddHttpClient("Google", client => client.Timeout = TimeSpan.FromMinutes(2))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false }).RemoveAllLoggers();
+builder.Services.AddHostedService<StudioWorker>();
 builder.Services.AddDbContext<EditorialDb>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Editorial")
         ?? throw new InvalidOperationException("ConnectionStrings:Editorial is required.")));
 var app = builder.Build();
+if (args.Contains("--migrate", StringComparer.Ordinal))
+{
+    await using var migrationScope = app.Services.CreateAsyncScope();
+    await migrationScope.ServiceProvider.GetRequiredService<EditorialDb>().Database.MigrateAsync();
+    return;
+}
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+if (Directory.Exists(Path.Combine(app.Environment.ContentRootPath, "wwwroot")))
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
+app.Use(async (context, next) =>
+{
+    try { await next(context); }
+    catch (StudioException ex) when (!context.Response.HasStarted)
+    { context.Response.Clear(); await Results.Problem(statusCode: ex.Status, detail: ex.Message).ExecuteAsync(context); }
+});
+app.UseOperatorSecurity();
 // Local single-operator API: reject cross-origin browser writes, including simple requests.
 app.Use(async (context, next) =>
 {
@@ -38,6 +67,12 @@ app.Use(async (context, next) =>
     finally { context.Response.Body = originalBody; }
 });
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapStudio();
+app.MapMedia();
+app.MapSchedule();
+app.MapGoogleAuthorization();
+NotebookIntegration.MapNotebook(app);
+YouTubePublishing.MapYouTube(app);
 app.MapGet("/api/channel", async (EditorialDb db) =>
 {
     var channel = await db.Channels.AsNoTracking().SingleOrDefaultAsync();
@@ -88,16 +123,31 @@ app.MapGet("/api/productions", async (string? status, Guid? nicheId, EditorialDb
     if (nicheId is not null) query = query.Where(p => p.ContentNicheId == nicheId);
     return Results.Ok((await query.OrderByDescending(p => p.CreatedAtUtc).ToListAsync()).Select(p => p.ToResponse()));
 });
-app.MapPost("/api/productions", async (ProductionInput input, EditorialDb db) =>
+app.MapPost("/api/productions", async (ProductionInput input, HttpRequest request, EditorialDb db) =>
 {
     if (string.IsNullOrWhiteSpace(input.Topic) || input.Topic.Length > 300 || input.PlannedDate == default)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["production"] = ["Topic and planned date are required."] });
+    var key = request.Headers["Idempotency-Key"].ToString();
+    if (key.Length > 128) throw new StudioException(400, "La clave de idempotencia es demasiado larga.");
+    var fingerprint = StudioRules.Hash(System.Text.Json.JsonSerializer.Serialize(input));
+    if (key.Length > 0)
+    {
+        var receipt = await db.Set<CreationReceipt>().SingleOrDefaultAsync(r => r.Key == key);
+        if (receipt is not null)
+        {
+            if (receipt.RequestHash != fingerprint) throw new StudioException(409, "La clave de idempotencia ya se usó para otra petición.");
+            return Results.Ok((await db.Productions.FindAsync(receipt.ProductionId))!.ToResponse());
+        }
+    }
     var niche = await db.Niches.SingleOrDefaultAsync(n => n.Id == input.ContentNicheId);
     if (niche is null || !niche.Enabled) return Results.ValidationProblem(new Dictionary<string, string[]> { ["niche"] = ["Select an enabled niche."] });
     var production = new Production { ChannelId = niche.ChannelId, ContentNicheId = niche.Id,
         NicheNameSnapshot = niche.Name, Topic = input.Topic.Trim(), PlannedDate = input.PlannedDate };
     db.Productions.Add(production);
     db.StatusHistory.Add(new ProductionStatusHistory { ProductionId = production.Id, To = ProductionStatus.Draft });
+    await db.SaveChangesAsync();
+    await StudioEndpoints.OpenWorkspace(db, production, null);
+    if (key.Length > 0) db.Add(new CreationReceipt { Key = key, RequestHash = fingerprint, ProductionId = production.Id });
     await db.SaveChangesAsync();
     return Results.Created($"/api/productions/{production.Id}", production.ToResponse());
 });
@@ -114,11 +164,14 @@ app.MapPut("/api/productions/{id:guid}", async (Guid id, ProductionEdit input, E
     var production = await db.Productions.FindAsync(id);
     if (production is null) return Results.NotFound();
     if (production.Status == ProductionStatus.Cancelled) return Results.Problem(statusCode: 409, detail: "Cancelled productions are immutable.");
+    if (await db.Set<YouTubeUpload>().AnyAsync(u => u.ProductionId == id)) throw new StudioException(409, "Los datos de una subida están congelados.");
     if (string.IsNullOrWhiteSpace(input.Topic) || input.Topic.Length > 300 || input.PlannedDate == default)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["production"] = ["Invalid topic or date."] });
     production.Topic = input.Topic.Trim();
     production.PlannedDate = input.PlannedDate;
     production.ModifiedAtUtc = DateTime.UtcNow;
+    var workspace = await db.Set<ProductionWorkspace>().FindAsync(id);
+    if (workspace is not null) { workspace.ApprovedAtUtc = null; if (workspace.Stage == "ReadyForUpload") workspace.Stage = "QualityReview"; }
     await db.SaveChangesAsync();
     return Results.Ok(production.ToResponse());
 });
@@ -131,6 +184,16 @@ app.MapPost("/api/productions/{id:guid}/status", async (Guid id, StatusInput inp
     var from = production.Status;
     var allowed = ProductionPolicy.CanTransition(from, input.Status.Value);
     if (!allowed) return Results.Problem(statusCode: 409, detail: "Invalid status transition.");
+    if (input.Status == ProductionStatus.Cancelled)
+    {
+        if (await db.Set<BackgroundJob>().AnyAsync(j => j.ProductionId == id && j.Status == "Running") || await db.Set<YouTubeUpload>().AnyAsync(u => u.ProductionId == id))
+            throw new StudioException(409, "No se puede cancelar mientras haya una operación externa o subida en curso.");
+        foreach (var job in await db.Set<BackgroundJob>().Where(j => j.ProductionId == id && j.Status == "Queued").ToListAsync()) job.Status = "Cancelled";
+        var workspace = await db.Set<ProductionWorkspace>().FindAsync(id);
+        if (workspace is not null) workspace.Stage = "Cancelled";
+        foreach (var slot in await db.Set<ScheduleSlot>().Where(s => s.ProductionId == id).ToListAsync()) slot.Status = "Cancelled";
+        StudioRules.Event(db, id, "ProductionCancelled", "Cancelación explícita del operador");
+    }
     production.Status = input.Status.Value;
     production.ModifiedAtUtc = DateTime.UtcNow;
     db.StatusHistory.Add(new ProductionStatusHistory { ProductionId = id, From = from, To = input.Status.Value });
@@ -147,6 +210,8 @@ app.MapPut("/api/productions/{id:guid}/notebook", async (Guid id, NotebookInput 
         return Results.Problem(statusCode: 409, detail: "Cancelled productions are immutable.");
     var uri = new Uri(input.Url);
     var reference = await db.NotebookReferences.SingleOrDefaultAsync(r => r.ProductionId == id);
+    if (reference is not null && reference.Url != uri.AbsoluteUri && await db.Set<ManualNotebookTask>().AnyAsync(t => t.ProductionId == id && t.Status == "Completed"))
+        throw new StudioException(409, "El notebook con tareas realizadas no se puede sustituir; conserva su procedencia.");
     if (reference is null) { reference = new NotebookReference { ProductionId = id }; db.NotebookReferences.Add(reference); }
     production.ModifiedAtUtc = DateTime.UtcNow;
     reference.Url = uri.AbsoluteUri;
