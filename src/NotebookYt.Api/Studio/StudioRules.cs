@@ -20,6 +20,11 @@ public static class StudioRules
         return value.Trim();
     }
     public static string Choice(string? value, params string[] allowed) => allowed.Contains(value) ? value! : throw new StudioException(400, "Valor no permitido.");
+    public static void ValidatePublicationSchedule(string visibility, DateTime? publishAtUtc)
+    {
+        if (publishAtUtc is not null && visibility != "public")
+            throw new StudioException(409, "La fecha programa una publicación pública. Selecciona public expresamente o elimina la fecha para conservar el vídeo privado o no listado.");
+    }
     public static void ValidatePublicationText(string title, string description, string tags)
     {
         if (title.Length > 100 || title.IndexOfAny(['<', '>']) >= 0 || description.IndexOfAny(['<', '>']) >= 0 || Encoding.UTF8.GetByteCount(description) > 5000)

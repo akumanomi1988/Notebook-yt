@@ -27,6 +27,8 @@ public static class QualityGate
         if (string.IsNullOrWhiteSpace(w.YouTubeTitle) || string.IsNullOrWhiteSpace(w.YouTubeDescription) || w.MadeForKids is null) failures.Add("Completa título, descripción y público infantil de YouTube.");
         try { StudioRules.ValidatePublicationText(w.YouTubeTitle, w.YouTubeDescription, w.Tags); }
         catch (StudioException ex) { failures.Add(ex.Message); }
+        try { StudioRules.ValidatePublicationSchedule(w.Visibility, w.PublishAtUtc); }
+        catch (StudioException ex) { failures.Add(ex.Message); }
         if (w.PublishAtUtc is not null && w.PublishAtUtc <= DateTime.UtcNow) failures.Add("La fecha de publicación programada ya pasó.");
         return new(failures.Count == 0, failures, warnings);
     }

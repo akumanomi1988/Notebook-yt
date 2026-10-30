@@ -44,8 +44,9 @@ app.UseOperatorSecurity();
 // Local single-operator API: reject cross-origin browser writes, including simple requests.
 app.Use(async (context, next) =>
 {
+    var sameOrigin = $"{context.Request.Scheme}://{context.Request.Host}";
     if (context.Request.Headers.TryGetValue("Origin", out var origin) &&
-        origin != "http://127.0.0.1:5173" && origin != "http://localhost:5173")
+        origin != sameOrigin && origin != "http://127.0.0.1:5173" && origin != "http://localhost:5173")
     {
         await Results.Problem(statusCode: 403, detail: "Origin is not allowed.").ExecuteAsync(context);
         return;

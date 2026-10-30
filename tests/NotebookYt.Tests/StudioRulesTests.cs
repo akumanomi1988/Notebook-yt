@@ -46,4 +46,18 @@ public class StudioRulesTests
         var encoded = $"100000:{Convert.ToBase64String(salt)}:{Convert.ToBase64String(digest)}";
         Assert.True(OperatorSecurity.VerifyPassword(password, encoded)); Assert.False(OperatorSecurity.VerifyPassword("wrong", encoded));
     }
+
+    [Theory]
+    [InlineData("private", true, false)]
+    [InlineData("unlisted", true, false)]
+    [InlineData("public", true, true)]
+    [InlineData("private", false, true)]
+    [InlineData("unlisted", false, true)]
+    [InlineData("public", false, true)]
+    public void ScheduledPublicationRequiresExplicitPublicVisibility(string visibility, bool scheduled, bool allowed)
+    {
+        DateTime? date = scheduled ? DateTime.UtcNow.AddDays(1) : null;
+        if (allowed) StudioRules.ValidatePublicationSchedule(visibility, date);
+        else Assert.Equal(409, Assert.Throws<StudioException>(() => StudioRules.ValidatePublicationSchedule(visibility, date)).Status);
+    }
 }

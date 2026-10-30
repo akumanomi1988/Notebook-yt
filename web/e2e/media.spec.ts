@@ -1,7 +1,7 @@
 ﻿import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './authenticated';
 
 test('unverified technical media can be previewed but never silently becomes canonical', async ({ page, request }, testInfo) => {
   const fixture = testInfo.outputPath('synthetic-technical-ui-only.mp4'); mkdirSync(dirname(fixture), { recursive: true });

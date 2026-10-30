@@ -19,8 +19,24 @@ public sealed class ControlledClientFactory(HttpClient client) : IHttpClientFact
 
 public class GoogleAdapterContractTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
 {
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task AuthorizationErrorsDoNotExposeProviderResponseBodies(HttpStatusCode status)
+    {
+        using var client = new HttpClient(new ControlledGoogleHandler(_ => Task.FromResult(ControlledGoogleHandler.Json("{\"error\":\"controlled-sensitive-diagnostic\"}", status))));
+        await using var db = new EditorialDb(new DbContextOptionsBuilder<EditorialDb>().UseNpgsql(fixture.ConnectionString).Options);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Google:ClientId"] = "controlled-test-client", ["Google:ClientSecret"] = "controlled-test-only" }).Build();
+        var google = new GoogleAuthorization(db, new ControlledClientFactory(client), new EphemeralDataProtectionProvider(), configuration);
+        var error = await Assert.ThrowsAsync<StudioException>(() => google.Exchange(new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = "controlled-test-only" }, "", CancellationToken.None));
+        Assert.Equal(409, error.Status);
+        Assert.DoesNotContain("controlled-sensitive-diagnostic", error.Message);
+        Assert.False(db.ChangeTracker.HasChanges());
+    }
+
     [Fact]
-    public async Task PublishingAppliesThumbnailAndFuturePrivateScheduleUsingOfficialContracts()
+    public async Task PublishingRequiresExplicitPublicVisibilityForFutureSchedule()
     {
         await fixture.Client.PutAsJsonAsync("/api/channel", new { name = "Publishing contract", timeZone = "Etc/UTC" }); var week = await fixture.Client.GetFromJsonAsync<JsonElement>("/api/week");
         var created = await fixture.Client.PostAsJsonAsync("/api/productions", new { contentNicheId = week[4].GetProperty("id").GetGuid(), topic = "Publishing contract", plannedDate = "2027-01-05" }); var p = await created.Content.ReadFromJsonAsync<JsonElement>(); var id = p.GetProperty("id").GetGuid();
@@ -48,6 +64,18 @@ public class GoogleAdapterContractTests(PostgresFixture fixture) : IClassFixture
         connection.ProtectedTokens = google.Protect(JsonSerializer.Serialize(new GoogleTokens("controlled-test-token", "", DateTime.UtcNow.AddHours(1)))); await db.SaveChangesAsync();
         await new YouTubePublishing(db, google, storage).Publish(new BackgroundJob { ResourceId = upload.Id, ProductionId = id }, CancellationToken.None);
         Assert.Equal(2, requests); Assert.True(await db.Set<BackgroundJob>().AnyAsync(j => j.Kind == "VerifyYouTube" && j.ResourceId == upload.Id)); Assert.NotEqual("Published", upload.Status);
+        foreach (var visibility in new[] { "private", "unlisted" })
+        {
+            upload.MetadataSnapshot = JsonSerializer.Serialize(new PublicationSnapshot("Approved title", "Approved description", ["test"], "27", "es", false, true, visibility, future));
+            await db.SaveChangesAsync();
+            var error = await Assert.ThrowsAsync<StudioException>(() => new YouTubePublishing(db, google, storage).Publish(new BackgroundJob { ResourceId = upload.Id, ProductionId = id }, CancellationToken.None));
+            Assert.Equal(409, error.Status);
+            Assert.Equal(2, requests);
+            var videoId = upload.VideoId; upload.VideoId = ""; await db.SaveChangesAsync();
+            Assert.Equal(409, (await Assert.ThrowsAsync<StudioException>(() => new YouTubePublishing(db, google, storage).Process(new BackgroundJob { ResourceId = upload.Id, ProductionId = id }, CancellationToken.None))).Status);
+            Assert.Equal(2, requests);
+            upload.VideoId = videoId;
+        }
     }
 
     [Fact]

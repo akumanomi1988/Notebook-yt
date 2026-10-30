@@ -103,6 +103,7 @@ public static class StudioEndpoints
             w.MadeForKids = input.MadeForKids; w.ContainsSyntheticMedia = input.ContainsSyntheticMedia; w.Visibility = StudioRules.Choice(input.Visibility, "private", "unlisted", "public");
             if (input.PublishAtUtc is not null && (input.PublishAtUtc.Value.Kind != DateTimeKind.Utc || input.PublishAtUtc <= DateTime.UtcNow)) throw new StudioException(400, "La publicación programada debe ser futura y UTC.");
             if (input.PublishAtUtc is not null && await db.Set<ProductionWorkspace>().AnyAsync(other => other.Id != id && other.PublishAtUtc == input.PublishAtUtc && db.Productions.Any(p => p.Id == other.Id && p.Status != ProductionStatus.Cancelled))) throw new StudioException(409, "Otra producción ya ocupa ese horario.");
+            StudioRules.ValidatePublicationSchedule(w.Visibility, input.PublishAtUtc);
             w.PublishAtUtc = input.PublishAtUtc; w.ApprovedAtUtc = null; w.ApprovalEvidence = ""; w.ModifiedAtUtc = DateTime.UtcNow;
             if (w.Stage == "ReadyForUpload") w.Stage = "QualityReview";
             StudioRules.Event(db, id, "WorkspaceUpdated", JsonSerializer.Serialize(input)); await db.SaveChangesAsync(); return Results.Ok(w);

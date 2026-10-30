@@ -18,7 +18,9 @@ public class ControlledMediaWorkflowTests(PostgresFixture fixture) : IClassFixtu
         var text = await response.Content.ReadAsStringAsync(); Assert.True(response.IsSuccessStatusCode, $"{response.StatusCode}: {text}"); return JsonDocument.Parse(text).RootElement.Clone();
     }
     [Fact]
-    public async Task ControlledOperatorAttestationTestsQualityAndThumbnailPlumbingNotGenuineOrigin()
+    public Task ControlledOperatorAttestationTestsQualityAndThumbnailPlumbingNotGenuineOrigin() => RunWorkflow();
+
+    internal async Task RunWorkflow()
     {
         var client = fixture.Client;
         await Json(await client.PutAsJsonAsync("/api/channel", new { name = "Controlled media workflow", timeZone = "Etc/UTC" }));
@@ -55,6 +57,12 @@ public class ControlledMediaWorkflowTests(PostgresFixture fixture) : IClassFixtu
         await using var db = new EditorialDb(new DbContextOptionsBuilder<EditorialDb>().UseNpgsql(fixture.ConnectionString).Options);
         var channel = await db.Channels.SingleAsync(); db.Add(new ChannelSettings { Id = channel.Id, MinimumDurationSeconds = 1 }); await db.SaveChangesAsync();
         quality = await Json(await client.GetAsync(path + "/quality")); Assert.True(quality.GetProperty("ready").GetBoolean());
+        metadata["publishAtUtc"] = DateTime.UtcNow.AddDays(2); metadata["visibility"] = "private";
+        var conflictingSchedule = await client.PutAsJsonAsync(path, metadata);
+        Assert.Equal(HttpStatusCode.Conflict, conflictingSchedule.StatusCode);
+        Assert.Contains("public", await conflictingSchedule.Content.ReadAsStringAsync());
+        detail = await Json(await client.GetAsync(path));
+        Assert.Equal(JsonValueKind.Null, detail.GetProperty("workspace").GetProperty("publishAtUtc").ValueKind);
         await Json(await client.PostAsJsonAsync(path + "/review", new { approved = true, evidence = "Test-only approval for a controlled fixture, not a real production" }));
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(path + "/upload", new { approved = true, evidence = "Must fail without Google authorization" })).StatusCode);
         var file = await client.GetAsync($"/api/studio/artifacts/{artifactId}/file"); Assert.Equal("video/mp4", file.Content.Headers.ContentType?.MediaType);

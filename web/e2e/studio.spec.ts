@@ -1,4 +1,4 @@
-﻿import { expect, test } from '@playwright/test';
+﻿import { expect, test } from './authenticated';
 
 test('studio research and manual notebook workflow persist against the actual API', async ({ page }) => {
   const title = `Evergreen studio ${Date.now()}`;
@@ -34,6 +34,19 @@ test('studio research and manual notebook workflow persist against the actual AP
   await expect(page.getByText('Falta un vídeo canónico válido de NotebookLM.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Publicación', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Aprobar y encolar subida a YouTube', exact: true })).toBeDisabled();
+  await page.getByLabel('Descripción y créditos', { exact: true }).fill('Controlled local metadata; no real upload is authorized.');
+  await page.getByLabel('¿Contenido dirigido a menores?').selectOption('false');
+  await page.getByLabel('Visibilidad tras subir').selectOption('private');
+  const schedule = page.getByLabel('Publicación pública futura (UTC; requiere public; vacía para no programar)', { exact: true });
+  await schedule.fill('2027-01-05T12:00');
+  await page.getByRole('button', { name: 'Guardar metadatos de publicación', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Selecciona public expresamente');
+  await schedule.fill('');
+  await page.getByRole('button', { name: 'Guardar metadatos de publicación', exact: true }).click();
+  await expect(page.getByText('Operación guardada.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(schedule).toHaveValue('');
+  await expect(page.getByLabel('Visibilidad tras subir')).toHaveValue('private');
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
   await expect(page.getByText('SourcePackageFrozen', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 375, height: 812 });

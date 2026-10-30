@@ -24,8 +24,9 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
     public async Task Process(BackgroundJob job, CancellationToken ct)
     {
         var upload = await Upload(job, ct); if (upload.VideoId.Length != 0) return;
-        var artifact = await db.Set<MediaArtifact>().FindAsync([upload.ArtifactId], ct) ?? throw new StudioException(409, "Falta el archivo aprobado.");
         var metadata = JsonSerializer.Deserialize<PublicationSnapshot>(upload.MetadataSnapshot)!;
+        StudioRules.ValidatePublicationSchedule(metadata.Visibility, metadata.PublishAtUtc);
+        var artifact = await db.Set<MediaArtifact>().FindAsync([upload.ArtifactId], ct) ?? throw new StudioException(409, "Falta el archivo aprobado.");
         if (upload.Status == "Queued")
         {
             await using (var stream = File.OpenRead(storage.Resolve(artifact.StorageKey)))
@@ -79,6 +80,7 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
     {
         var upload = await Upload(job, ct); if (upload.VideoId.Length == 0) throw new StudioException(409, "La subida aún no está confirmada.");
         var meta = JsonSerializer.Deserialize<PublicationSnapshot>(upload.MetadataSnapshot)!;
+        StudioRules.ValidatePublicationSchedule(meta.Visibility, meta.PublishAtUtc);
         var thumbnail = await db.Set<MediaArtifact>().Where(a => a.ProductionId == upload.ProductionId && a.Kind == "Thumbnail" && a.Status == "Valid").OrderByDescending(a => a.ImportedAtUtc).FirstAsync(ct);
         using (var content = new StreamContent(File.OpenRead(storage.Resolve(thumbnail.StorageKey))))
         {
@@ -159,6 +161,7 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
         });
         app.MapPut("/api/studio/uploads/{id:guid}/metadata", async (Guid id, PublishedMetadataEdit input, EditorialDb db, YouTubePublishing publishing, CancellationToken ct) =>
         {
+            StudioRules.ValidatePublicationSchedule(input.Visibility, input.PublishAtUtc);
             var upload = await db.Set<YouTubeUpload>().FindAsync(id) ?? throw new StudioException(404, "Subida inexistente."); await StudioRules.EditableJob(db, upload.ProductionId);
             if (!input.Approved || upload.VideoId.Length == 0 || await db.Set<BackgroundJob>().AnyAsync(j => j.ResourceId == id && j.Status == "Running", ct)) throw new StudioException(409, "La revisión requiere aprobación explícita y un vídeo confirmado sin trabajos en curso.");
             await publishing.Verify(new BackgroundJob { ResourceId = id, CreatedAtUtc = DateTime.UtcNow }, ct);

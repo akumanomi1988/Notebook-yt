@@ -19,11 +19,13 @@ public class OperatorSecurityTests(PostgresFixture fixture) : IClassFixture<Post
         var session = await client.GetFromJsonAsync<JsonElement>("/api/auth/session"); var token = session.GetProperty("csrfToken").GetString()!;
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/auth/login", new { password })).StatusCode);
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token);
+        client.DefaultRequestHeaders.Add("Origin", "http://localhost");
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login", new { password })).StatusCode);
         session = await client.GetFromJsonAsync<JsonElement>("/api/auth/session");
         client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN"); client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", session.GetProperty("csrfToken").GetString()!);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/productions")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/studio/google/callback?code=test&state=invalid")).StatusCode);
+        client.DefaultRequestHeaders.Remove("Origin");
         client.DefaultRequestHeaders.Add("Origin", "https://evil.example");
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/channel", new { name = "Attack", timeZone = "Etc/UTC" })).StatusCode);
         client.DefaultRequestHeaders.Remove("Origin");

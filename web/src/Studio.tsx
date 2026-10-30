@@ -34,7 +34,7 @@ const workspaceFields: Field[] = [
   { key: 'youTubeTitle', label: 'Título de YouTube', required: true }, { key: 'youTubeDescription', label: 'Descripción y créditos', type: 'textarea' },
   { key: 'tags', label: 'Etiquetas separadas por comas' }, { key: 'categoryId', label: 'Categoría numérica de YouTube', required: true },
   { key: 'madeForKids', label: '¿Contenido dirigido a menores?', options: ['', 'true', 'false'] }, { key: 'containsSyntheticMedia', label: 'Declarar contenido sintético', type: 'checkbox' },
-  { key: 'visibility', label: 'Visibilidad tras subir', options: ['private', 'unlisted', 'public'] }, { key: 'publishAtUtc', label: 'Publicación futura (UTC, vacía para no programar)', type: 'datetime-local' },
+  { key: 'visibility', label: 'Visibilidad tras subir', options: ['private', 'unlisted', 'public'] }, { key: 'publishAtUtc', label: 'Publicación pública futura (UTC; requiere public; vacía para no programar)', type: 'datetime-local' },
 ];
 
 function ObjectForm({ value, fields, label, disabled, onSave }: { value: Row; fields: Field[]; label: string; disabled: boolean; onSave: (value: Row) => void }) {
