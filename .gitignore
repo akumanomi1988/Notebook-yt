@@ -8,3 +8,6 @@
 
 .audit/
 *.tsbuildinfo
+
+**/test-results/
+**/playwright-report/
