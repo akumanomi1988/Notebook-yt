@@ -20,6 +20,7 @@ test('studio research and manual notebook workflow persist against the actual AP
   await page.getByRole('button', { name: 'Registrar fuente', exact: true }).click();
   await expect(page.getByText('Operator notes', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Congelar paquete y preparar tareas', exact: true }).click();
+  await page.locator('summary').filter({ hasText: 'Paquete v1' }).click();
   await expect(page.getByRole('link', { name: 'Descargar paquete', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'NotebookLM', exact: true }).click();
   await page.getByLabel('URL del notebook dedicado').fill('https://notebooklm.google.com/notebook/controlled-manual-reference');
@@ -27,7 +28,7 @@ test('studio research and manual notebook workflow persist against the actual AP
   await page.getByLabel('Evidencia de la tarea manual').fill('Controlled attestation of a reference; not live provider verification.');
   await page.getByLabel('Declaro que he realizado la operación en la interfaz oficial', { exact: true }).check();
   await page.getByRole('button', { name: 'Registrar declaración: CreateNotebook', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'CreateNotebook · Completed', exact: true })).toBeVisible();
+  await expect(page.locator('summary').filter({ hasText: 'Crear cuaderno' })).toContainText('Completada');
   await page.getByRole('button', { name: 'Vídeo y calidad', exact: true }).click();
   await page.getByRole('button', { name: 'Comprobar calidad', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Existen bloqueos', exact: true })).toBeVisible();
@@ -47,6 +48,10 @@ test('studio research and manual notebook workflow persist against the actual AP
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(schedule).toHaveValue('');
   await expect(page.getByLabel('Visibilidad tras subir')).toHaveValue('private');
+  await page.getByRole('button', { name: 'Vídeo y calidad', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Existen bloqueos', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Comprobar calidad', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Existen bloqueos', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
   await expect(page.getByText('SourcePackageFrozen', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 375, height: 812 });

@@ -2,7 +2,7 @@
 
 Centro editorial privado para un operador, un canal y siete nichos. NotebookLM es el único origen permitido para el vídeo canónico. La aplicación organiza temas, investigación, paquetes, tareas, archivos, revisión y publicación mediante las APIs oficiales de Google que estén disponibles y autorizadas.
 
-**Estado de aceptación: FUNCTIONALLY COMPLETE WITH EXTERNAL VERIFICATION PENDING.** La aceptación local autenticada incluye compilaciones, pruebas, reinicios y restauración aislada. Siguen pendientes un vídeo genuino de NotebookLM, Google autorizado y ejecución Docker. No confundir contratos controlados con integraciones verificadas en vivo. Consulta [la aceptación operativa](doc/OPERATIONAL_ACCEPTANCE_REPORT.md) y [el informe de implementación anterior](doc/COMPLETE_PRODUCT_REPORT.md).
+**Activación local:** se ejecutó el recorrido real NotebookLM → descarga oficial → importación → inspección → miniatura → subida privada a YouTube, con procesamiento confirmado. El perfil del operador tiene siete nichos y planificación diaria. La API no devolvió el campo de declaración de IA: se conserva como no confirmado, aunque se envió expresamente. Docker sigue sin verificación de ejecución. Consulta [la activación y pruebas actuales](doc/DAILY_OPERATOR_ACTIVATION.md); los informes anteriores se conservan como evidencia histórica.
 
 ## Inicio local
 

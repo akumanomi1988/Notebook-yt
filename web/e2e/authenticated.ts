@@ -18,11 +18,11 @@ export const test = base.extend<object, { operatorState: OperatorState }>({
   }, { scope: 'worker' }],
   storageState: async ({ operatorState }, use) => { await use(operatorState); },
   request: async ({ playwright, operatorState }, use) => {
-    const request = await playwright.request.newContext({ baseURL: 'http://127.0.0.1:5080', storageState: operatorState });
+    const request = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5080', storageState: operatorState });
     const session = await (await request.get('/api/auth/session')).json();
     expect(session.required && session.authenticated).toBe(true);
     const authenticated = await playwright.request.newContext({
-      baseURL: 'http://127.0.0.1:5080', storageState: await request.storageState(),
+      baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5080', storageState: await request.storageState(),
       extraHTTPHeaders: { 'X-CSRF-TOKEN': session.csrfToken },
     });
     await request.dispose();

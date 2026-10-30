@@ -52,8 +52,9 @@ function ProductionEditor({ detail, saving, run, reload }: { detail: Detail; sav
   </section>;
 }
 
-export function App() {
-  const [tab, setTab] = useState<'week' | 'productions' | 'studio'>('week');
+export function App({ initialTab = 'studio' }: { initialTab?: 'week' | 'productions' | 'studio' } = {}) {
+  const [tab, setTab] = useState<'week' | 'productions' | 'studio'>(initialTab);
+  const [studioView, setStudioView] = useState('Resumen');
   const [channel, setChannel] = useState<Channel>({ name: '', timeZone: 'Etc/UTC' });
   const [niches, setNiches] = useState<Niche[]>([]);
   const [productions, setProductions] = useState<Production[]>([]);
@@ -103,11 +104,12 @@ export function App() {
     setTopic(''); await reload(p.id);
   }); };
   const visible = productions.filter(p => (!statusFilter || p.status === statusFilter) && (!nicheFilter || p.contentNicheId === nicheFilter));
-  return <main><header><h1>Notebook-yt</h1><p>Gestión editorial local · NotebookLM manual</p><nav aria-label="Secciones editoriales"><button aria-pressed={tab === 'week'} onClick={() => setTab('week')}>Semana editorial</button><button aria-pressed={tab === 'productions'} onClick={() => setTab('productions')}>Producciones</button><button aria-pressed={tab === 'studio'} onClick={() => setTab('studio')}>Centro de producción</button></nav></header>
+  const studioLink = (view: string) => { setTab('studio'); setStudioView(view); };
+  return <div className="app-shell"><a className="skip-link" href="#main-content">Saltar al contenido</a><aside className="sidebar"><a className="brand" href="#main-content" onClick={() => studioLink('Resumen')}><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="3" width="22" height="22" rx="5" fill="none" stroke="currentColor" strokeWidth="1.5"/><path d="M9 19V9l10 10V9" fill="none" stroke="currentColor" strokeWidth="2"/></svg><span>Notebook-yt</span></a><p className="sidebar-channel">{channel.name || 'Tu canal editorial'}<span>Espacio privado del operador</span></p><nav aria-label="Secciones editoriales"><p>Operación diaria</p>{[['Resumen', 'Centro de producción'], ['Calendario', 'Calendario'], ['Temas', 'Temas'], ['Producciones', 'Espacios de trabajo']].map(([view, label]) => <button key={view} aria-pressed={tab === 'studio' && studioView === view} onClick={() => studioLink(view)}>{label}</button>)}<button aria-pressed={tab === 'productions'} onClick={() => setTab('productions')}>Producciones</button><p>Configuración</p><button aria-pressed={tab === 'week'} onClick={() => setTab('week')}>Semana editorial</button>{[['Integraciones', 'Integraciones'], ['Ajustes', 'Ajustes'], ['Trabajos', 'Trabajos']].map(([view, label]) => <button key={view} aria-pressed={tab === 'studio' && studioView === view} onClick={() => studioLink(view)}>{label}</button>)}</nav><div className="sidebar-note"><strong>NotebookLM → YouTube</strong><span>Un vídeo original al día.<br/>Cada paso conserva su evidencia.</span></div></aside><main id="main-content" tabIndex={-1}><header className="page-header"><div><h1>{tab === 'week' ? 'Canal y nichos' : tab === 'productions' ? 'Planificar una producción' : studioView === 'Resumen' ? 'Tu mesa editorial' : studioView}</h1><p>{tab === 'week' ? 'Una semana completa, siete líneas editoriales.' : tab === 'productions' ? 'Crea una producción o revisa sus datos editoriales.' : 'De las fuentes al vídeo, con el siguiente paso siempre a mano.'}</p></div><span className="local-status">Entorno local · {channel.timeZone}</span></header>
     {loading && <p role="status">Cargando datos editoriales…</p>}
     {error && <div role="alert" className="error">{error}<button disabled={saving} onClick={() => void run(refresh)}>Reintentar carga</button></div>}
     {saving && <p role="status">Guardando cambios…</p>}{notice && <p role="status">{notice}</p>}
-    {!loading && (tab === 'studio' ? <Studio /> : tab === 'week' ? <>
+    {!loading && (tab === 'studio' ? <Studio view={studioView} onViewChange={setStudioView} embedded /> : tab === 'week' ? <>
       <section><h2>Configuración del canal</h2><form onSubmit={e => { e.preventDefault(); void run(async () => { await request('/channel', 'PUT', channel); await refresh(); }); }}>
         <fieldset disabled={saving}><legend>Canal local</legend><label>Nombre del canal<input required maxLength={160} value={channel.name} onChange={e => setChannel({ ...channel, name: e.target.value })} /></label>
           <label>Zona horaria IANA<input required maxLength={100} value={channel.timeZone} onChange={e => setChannel({ ...channel, timeZone: e.target.value })} placeholder="Europe/Madrid" /></label>
@@ -130,5 +132,5 @@ export function App() {
       {detailLoading && <p role="status">Cargando detalle…</p>}
       {selected && <ProductionEditor key={`${selected.production.id}:${selected.production.modifiedAtUtc}`} detail={selected} saving={saving} run={run} reload={reload} />}
     </>)}
-  </main>;
+  </main></div>;
 }

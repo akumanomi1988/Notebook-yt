@@ -3,6 +3,7 @@ import { expect, test } from './authenticated';
 test('operator completes the Phase 1 workflow against the actual API', async ({ page }) => {
   const topic = `E2E ${Date.now()}`;
   await page.goto('/');
+  await page.getByRole('button', { name: 'Semana editorial', exact: true }).click();
   await page.getByLabel('Nombre del canal').fill('Local editorial');
   await page.getByLabel('Zona horaria IANA').fill('Europe/Madrid');
   await page.getByRole('button', { name: 'Guardar canal e inicializar semana' }).click();
@@ -52,11 +53,12 @@ test('operator completes the Phase 1 workflow against the actual API', async ({ 
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
   await page.getByRole('button', { name: 'Semana editorial' }).focus();
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('button', { name: 'Producciones', exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Integraciones', exact: true })).toBeFocused();
 });
 
 test('niche disabling preserves history and failed loading can recover', async ({ page }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Semana editorial', exact: true }).click();
   const monday = page.getByRole('form', { name: 'Configuración Lunes' });
   await monday.getByLabel('Nombre del nicho').fill('Evergreen history');
   await monday.getByLabel('Habilitar para nuevas producciones').uncheck();
@@ -75,5 +77,6 @@ test('niche disabling preserves history and failed loading can recover', async (
   await page.unroute('**/api/channel');
   await page.getByRole('button', { name: 'Reintentar carga' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Semana editorial', exact: true }).click();
   await expect(page.getByLabel('Nombre del canal')).toHaveValue('Local editorial');
 });

@@ -30,7 +30,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 test('creates and edits a production, filters list and excludes disabled niches', async () => {
-  const user = userEvent.setup(); render(<App />);
+  const user = userEvent.setup(); render(<App initialTab="week" />);
   await screen.findByText('Calendario semanal');
   await user.click(screen.getByRole('button', { name: 'Producciones' }));
   expect(within(screen.getByLabelText('Nicho para nueva producción')).queryByRole('option', { name: 'Disabled' })).not.toBeInTheDocument();
@@ -48,7 +48,7 @@ test('creates and edits a production, filters list and excludes disabled niches'
 });
 
 test('preserves edit input after failed save and shows a recoverable error', async () => {
-  items = [production]; const user = userEvent.setup(); render(<App />);
+  items = [production]; const user = userEvent.setup(); render(<App initialTab="week" />);
   await screen.findByText('Calendario semanal');
   await user.click(screen.getByRole('button', { name: 'Producciones' }));
   await user.click(screen.getByRole('button', { name: 'Saved topic' }));
@@ -64,7 +64,7 @@ test('preserves edit input after failed save and shows a recoverable error', asy
 
 test('cancelled details cannot be edited or transitioned', async () => {
   detail.production = { ...production, status: 'Cancelled', nextManualAction: 'None' }; items = [detail.production];
-  const user = userEvent.setup(); render(<App />); await screen.findByText('Calendario semanal');
+  const user = userEvent.setup(); render(<App initialTab="week" />); await screen.findByText('Calendario semanal');
   await user.click(screen.getByRole('button', { name: 'Producciones' })); await user.click(screen.getByRole('button', { name: 'Saved topic' }));
   expect(await screen.findByLabelText('Tema de la producción')).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Guardar referencia' })).toBeDisabled();
@@ -73,7 +73,7 @@ test('cancelled details cannot be edited or transitioned', async () => {
 
 test('initial loading and network failure allow retry', async () => {
   fetchMock.mockRejectedValueOnce(new Error('Offline'));
-  const user = userEvent.setup(); render(<App />);
+  const user = userEvent.setup(); render(<App initialTab="week" />);
   expect(screen.getByRole('status')).toHaveTextContent('Cargando');
   expect(await screen.findByRole('alert')).toHaveTextContent('Offline');
   await user.click(screen.getByRole('button', { name: 'Reintentar carga' }));
