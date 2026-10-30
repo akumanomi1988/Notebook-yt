@@ -1,29 +1,26 @@
-﻿# Notebook-yt — Phase 1
+﻿# Notebook-yt
 
-Gestión editorial local para un operador, un canal y siete nichos evergreen. Incluye calendario semanal, edición y desactivación de nichos, creación y edición de producciones, filtros, estados auditables y registro manual de referencias NotebookLM. No genera vídeos ni publica contenido.
+Centro editorial privado para un operador, un canal y siete nichos. NotebookLM es el único origen permitido para el vídeo canónico. La aplicación organiza temas, investigación, paquetes, tareas, archivos, revisión y publicación mediante las APIs oficiales de Google que estén disponibles y autorizadas.
 
-## Requisitos
+**Estado de aceptación: INCOMPLETE.** La implementación local y sus pruebas están ejecutadas. No se ha verificado una exportación genuina de NotebookLM ni operaciones reales de Google con esta cuenta. No confundir contratos simulados con integraciones verificadas en vivo. Consulta [el informe de implementación](doc/COMPLETE_PRODUCT_REPORT.md).
 
-- .NET 10 SDK.
-- PostgreSQL local. Verificado con PostgreSQL 17.6.
-- Node.js 22.12 o posterior; verificado con Node 24.22.1 y npm 11.19.1.
-- Chromium para las pruebas E2E: `npx playwright install chromium` desde `web`.
+## Inicio local
 
-## Inicio local reproducible
+Requisitos: .NET 10 SDK, PostgreSQL 17+, Node 22.12+, npm, FFmpeg y FFprobe. Los ejecutables multimedia deben estar en PATH o configurarse mediante `Media__ffmpegPath` y `Media__ffprobePath`.
 
-Crear una base vacía dedicada y un usuario local con permisos de esquema en esa base. PostgreSQL debe escuchar solo en localhost. Para desarrollo habitual, usar autenticación con contraseña y un usuario sin privilegios de superusuario. No reutilizar una base compartida para las pruebas.
-
-En PowerShell, desde la raíz, con la variable `ConnectionStrings__Editorial` configurada de forma privada en la sesión:
+1. Crear una base PostgreSQL local dedicada y un usuario con permisos sobre su esquema. Usar autenticación apropiada y limitar PostgreSQL a localhost.
+2. Configurar privadamente `ConnectionStrings__Editorial` en la sesión. No versionar contraseñas ni conexiones con secretos.
+3. Preparar la contraseña del operador y arrancar:
 
 ```powershell
+# Desde la raíz. El script solicita la contraseña y la asignación evita imprimir el hash.
+$env:Security__PasswordHash = & .\scripts\New-OperatorPasswordHash.ps1
 dotnet tool restore
 dotnet restore
 dotnet ef database update --project src/NotebookYt.Api
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 dotnet run --project src/NotebookYt.Api
 ```
-
-La conexión usa las claves Npgsql `Host`, `Port`, `Database`, `Username` y, cuando corresponda, `Password`. No guardar su valor en archivos versionados, capturas ni informes. Las migraciones están incluidas; no ejecutar `EnsureCreated` ni generar otra migración inicial.
 
 En otra terminal:
 
@@ -33,57 +30,79 @@ npm ci
 npm run dev
 ```
 
-Abrir `http://127.0.0.1:5173`. La API escucha en `http://127.0.0.1:5080`; `/health` indica que el proceso responde. La conexión efectiva a PostgreSQL se verifica mediante `/api/channel` y `/api/week`. Antes de configurar el canal, `/api/channel` devuelve JSON `null` y la semana es una lista vacía. Guardar el canal crea las siete asignaciones de forma atómica.
+Abrir `http://127.0.0.1:5173`. La API escucha en `127.0.0.1:5080`. La autenticación está activada por defecto. La clave de sesión y los tokens Google se protegen con ASP.NET Data Protection; conservar su directorio de claves entre reinicios.
 
-## Comprobaciones
+Guardar primero el canal en Semana editorial. En Centro de producción, completar Ajustes, aprobar un tema, crear su producción y preparar las fuentes. El trabajador durable se inicia con el backend y funciona aunque el navegador esté cerrado. No hay un trabajador que simule la generación de vídeo.
 
-Detener la API antes de reconstruir en Windows para evitar el bloqueo del ejecutable.
+## Recorrido NotebookLM
+
+1. Registrar fuentes con procedencia y definir el contexto editorial.
+2. Congelar el paquete; descargarlo o copiar sus instrucciones.
+3. Crear y preparar el notebook por API Enterprise si se dispone de licencia, proyecto y OAuth; en otro caso, realizar las tareas indicadas en la interfaz oficial.
+4. Generar Video Overview en NotebookLM y registrar las declaraciones del operador.
+5. Descargar con el botón oficial de NotebookLM. El navegador lo guarda en Descargas o pide un destino; no es necesario conocer ninguna ruta interna de Google.
+6. Seleccionar el archivo con Importar archivo para inspección. Notebook-yt conserva una copia en su almacenamiento configurable.
+7. Un archivo sin declaración de procedencia permanece `Unverified`. La inspección técnica no demuestra que proceda de NotebookLM.
+8. Declarar procedencia y autorización del original; completar las tareas, seleccionar el vídeo canónico, extraer o subir una miniatura y revisar calidad y metadatos.
+9. Conectar YouTube y aprobar expresamente la subida y su visibilidad/programación. La subida inicial es privada y la publicación se confirma mediante Google.
+
+No hay llamadas privadas, extracción de cookies, scraping autenticado ni otros generadores audiovisuales. No se automatizan la generación ni la descarga de Video Overview sin una API pública soportada y verificada. [Matriz de capacidades](doc/NOTEBOOKLM_CAPABILITIES.md).
+
+## Configuración
+
+| Variable | Función |
+|---|---|
+| `ConnectionStrings__Editorial` | Conexión PostgreSQL privada |
+| `Security__PasswordHash` | Hash PBKDF2 del operador |
+| `Security__KeyDirectory` | Claves persistentes de Data Protection |
+| `Storage__Root` | Almacén de archivos; por defecto LocalApplicationData/NotebookYt/storage |
+| `Media__ffmpegPath`, `Media__ffprobePath` | Ejecutables de inspección y miniaturas |
+| `Worker__Enabled` | `true` por defecto; desactivar solo en pruebas o mantenimiento |
+| `Security__RequireAuthentication` | `true` por defecto; `false` únicamente en un entorno local de pruebas aislado |
+| `Google__ClientId`, `Google__ClientSecret` | Cliente OAuth privado configurado en el servidor |
+| `Google__RedirectUri` | Por defecto `http://127.0.0.1:5173/api/studio/google/callback` |
+| `NotebookEnterprise__ProjectNumber` | Proyecto numérico autorizado |
+| `NotebookEnterprise__Region` | `global`, `us` o `eu` |
+| `Hosting__Urls` | Por defecto loopback; en contenedor se usa su red interna con puerto del host limitado a loopback |
+
+El archivo `appsettings.Development.json` mantiene el logging de desarrollo separado del común. No contiene secretos. El endpoint `/health` comprueba el proceso; consultar el canal o la semana comprueba la conexión efectiva a PostgreSQL.
+
+## Pruebas ejecutables
 
 ```powershell
+# Detener el backend antes de reconstruir en Windows.
 dotnet build src/NotebookYt.Api
-# Solo pruebas unitarias, sin PostgreSQL:
-dotnet test tests/NotebookYt.Tests --filter 'FullyQualifiedName!~ApiIntegrationTests'
+# Solo reglas/validaciones, sin base de datos ni herramientas de medios:
+dotnet test tests/NotebookYt.Tests --filter 'FullyQualifiedName~StudioRulesTests|FullyQualifiedName~ValidationTests|FullyQualifiedName~ProductionPolicyTests'
 ```
 
-Para la suite completa, configurar `NOTEBOOK_TEST_POSTGRES` con una conexión a una instancia PostgreSQL local y aislada. El usuario de esa conexión necesita permiso para crear bases. Las pruebas crean una base aleatoria `notebook_test_<guid>`, aplican migraciones, ejecutan HTTP y SQL y eliminan únicamente esa base al terminar.
+Para toda la suite, configurar `NOTEBOOK_TEST_POSTGRES` con una instancia PostgreSQL aislada cuyo usuario pueda crear bases. Se crean bases aleatorias `notebook_test_<guid>` y se eliminan exclusivamente esas bases al finalizar. FFmpeg y FFprobe deben estar en PATH o indicarse con `TEST_FFMPEG` y `TEST_FFPROBE`.
 
 ```powershell
 dotnet test tests/NotebookYt.Tests
 cd web
 npm run typecheck
-npm run build
 npm test
+npm run build
 npm audit
-```
-
-Para E2E, iniciar API y Vite con una base exclusiva de pruebas, migrada, y ejecutar desde `web`:
-
-```powershell
 npx playwright install chromium
 npm run test:e2e
 ```
 
-Las E2E modifican el canal y el nicho del lunes y crean producciones de prueba. No ejecutarlas contra datos de trabajo. Cubren creación y edición real, estados, filtros, URL inválida y válida, cancelación, carga fallida y recuperación, móvil y foco de teclado. Las capturas se guardan en `web/test-results/`, ignorado por Git.
+E2E requiere API y Vite ya iniciados contra una base exclusiva de pruebas, con `Security__RequireAuthentication=false`. Modifica canal y nichos y crea datos de prueba; no usar datos de trabajo. Las pruebas de autenticación se ejecutan además con protección activada en TestHost.
 
-## Contratos y decisiones
+Los archivos sintéticos se usan exclusivamente como fixtures técnicos en pruebas. Nunca acreditan procedencia real de NotebookLM ni aceptación externa. Los contratos de Google se prueban mediante HTTP controlado; no se realizan subidas reales en la suite.
 
-- `GET/PUT /api/channel`: identidad persistente de un único canal; zona IANA.
-- `GET /api/week`, `PUT /api/week/{weekday}`: días ISO 1–7. No hay operaciones para crear o eliminar asignaciones individuales.
-- `GET/POST /api/productions`: listado y creación. Filtros API opcionales `status=Draft` y `nicheId=<guid>`. La interfaz filtra el conjunto local cargado.
-- `GET/PUT /api/productions/{id}`: detalle y edición de tema/fecha. El nicho y su snapshot no son editables.
-- `POST /api/productions/{id}/status`: estado textual; transiciones inválidas devuelven 409.
-- `PUT /api/productions/{id}/notebook`: actualiza una referencia por producción. Repetir la operación conserva su identidad.
-- Validaciones 400, recurso inexistente 404, conflicto 409 y fallos inesperados 500 mediante Problem Details. Las respuestas públicas usan DTOs.
-- Política central en `ProductionPolicy`. El siguiente paso manual es un identificador estable devuelto por el backend y traducido por la interfaz.
-- Snapshot requerido en Phase 1: nombre del nicho al crear la producción. Renombrar o desactivar el nicho conserva las producciones anteriores.
-- `PlannedDate` usa SQL `date`. Creación, modificación y auditoría usan UTC/`timestamptz`. La fecha inicial de la UI respeta la zona del canal.
-- Las escrituras se serializan mediante bloqueo transaccional asesor de PostgreSQL, compartido entre instancias de la API. La transacción confirma antes de enviar el cuerpo de éxito. Esta estrategia prioriza corrección para un solo operador.
-- PostgreSQL impone canal único, días únicos y válidos, siete asignaciones al confirmar, FK restrictivas y compuestas, estados válidos e inmutabilidad del nombre histórico. No escribir directamente en las tablas: las transiciones y su auditoría se realizan por la API.
+## Operación y persistencia
 
-## Seguridad y límites
+Hay tres migraciones acumulativas, conservando el historial auditado. `--migrate` aplica migraciones explícitamente y termina sin arrancar el servidor. No se usa `EnsureCreated`.
 
-Uso local sin autenticación. No publicar esta API ni Vite en Internet. Se limitan los hosts y orígenes de navegador; no hay CORS abierto. Los ajustes comunes y de desarrollo están separados, sin secretos. `/health` es una comprobación del proceso, no de disponibilidad de la base.
+Los estados editoriales iniciales siguen disponibles. El espacio de trabajo ampliado mantiene etapas, tareas, trabajos y publicación separados. Los snapshots editoriales, paquetes, revisiones y eventos son inmutables. Las escrituras de la API y las reclamaciones de trabajos se coordinan con PostgreSQL; los trabajos usan propietario, lease renovable, recuperación y reintentos acotados.
 
-POST de creación no es idempotente: repetirlo crea otra producción. La interfaz bloquea envíos simultáneos. El registro de notebook sí actualiza una única referencia. No hay paginación ni soporte multioperador, y no se automatizan operaciones de Google.
+Crear una producción admite `Idempotency-Key`: misma clave y cuerpo devuelve la misma producción; reutilizar la clave con otro cuerpo devuelve 409. La creación desde un tema, creación de notebook y subida tienen claves durables propias. El resultado ambiguo de una operación externa requiere conciliación; nunca se repite a ciegas.
 
-La aceptación y las verificaciones ejecutadas están en [PHASE1_COMPLETION.md](doc/PHASE1_COMPLETION.md). La [auditoría anterior](doc/PHASE1_AUDIT.md) conserva el diagnóstico histórico anterior a esta implementación. La viabilidad actual de Google se documenta en [NOTEBOOKLM_FEASIBILITY.md](doc/NOTEBOOKLM_FEASIBILITY.md).
+Los paquetes se congelan para conservar fuentes y contexto. Para una investigación editorial distinta, crear otra producción. Los archivos importados se conservan por checksum; nuevas versiones tienen registros independientes y reemplazar el canónico invalida la aprobación. La limpieza solo elimina archivos huérfanos antiguos, nunca archivos referenciados ni historial.
+
+El planificador conserva fecha y hora local, zona IANA y UTC. Los saltos DST se desplazan al primer minuto válido; en una hora repetida se elige la ocurrencia posterior. La pausa detiene la creación de turnos, no elimina trabajos ya aprobados. Los turnos vencidos quedan como `Missed` y exigen revisión.
+
+[Docker, OAuth, copias, restauración y diagnóstico](doc/OPERATIONS.md). [Informe de pruebas y límites de aceptación](doc/COMPLETE_PRODUCT_REPORT.md).

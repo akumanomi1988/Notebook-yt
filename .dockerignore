@@ -1,0 +1,17 @@
+.git
+.audit
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/test-results
+.env*
+*.mp4
+*.key
+*.pfx
+**/playwright-report
+.local
+data
+media
+*.blob
+*.partial
