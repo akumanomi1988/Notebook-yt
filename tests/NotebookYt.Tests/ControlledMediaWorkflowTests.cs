@@ -27,8 +27,10 @@ public class ControlledMediaWorkflowTests(PostgresFixture fixture) : IClassFixtu
         var week = await Json(await client.GetAsync("/api/week")); var created = await Json(await client.PostAsJsonAsync("/api/productions", new { contentNicheId = week[0].GetProperty("id").GetGuid(), topic = "Synthetic technical acceptance test ONLY", plannedDate = "2027-01-01" }));
         var id = created.GetProperty("id").GetGuid(); var path = $"/api/studio/productions/{id}";
         await Json(await client.PostAsJsonAsync(path + "/sources", new { title = "Controlled test notes", kind = "Note", url = "", notes = "Synthetic fixture workflow, never live NotebookLM acceptance", classification = "Primary", provenance = "Test authored notes", included = true, artifactId = (Guid?)null }));
+        await EditorialTestSupport.Prepare(client, id);
         await Json(await client.PostAsync(path + "/package", null));
         await Json(await client.PutAsJsonAsync($"/api/productions/{id}/notebook", new { url = "https://notebooklm.google.com/notebook/controlled-test-only" }));
+        await EditorialTestSupport.Attest(client, id);
         var detail = await Json(await client.GetAsync(path)); var tasks = detail.GetProperty("tasks").EnumerateArray().ToDictionary(t => t.GetProperty("kind").GetString()!, t => t.GetProperty("id").GetGuid());
         foreach (var step in StudioRules.ManualSteps.Take(7))
             await Json(await client.PostAsJsonAsync($"/api/studio/tasks/{tasks[step.Kind]}/complete", new { attested = true, evidence = "Controlled test double for an operator statement; NOT real NotebookLM evidence" }));
@@ -56,6 +58,7 @@ public class ControlledMediaWorkflowTests(PostgresFixture fixture) : IClassFixtu
         await Json(await client.PutAsJsonAsync(path, metadata));
         await using var db = new EditorialDb(new DbContextOptionsBuilder<EditorialDb>().UseNpgsql(fixture.ConnectionString).Options);
         var channel = await db.Channels.SingleAsync(); db.Add(new ChannelSettings { Id = channel.Id, MinimumDurationSeconds = 1 }); await db.SaveChangesAsync();
+        await EditorialTestSupport.Review(client, id, artifactId);
         quality = await Json(await client.GetAsync(path + "/quality")); Assert.True(quality.GetProperty("ready").GetBoolean());
         metadata["publishAtUtc"] = DateTime.UtcNow.AddDays(2); metadata["visibility"] = "private";
         var conflictingSchedule = await client.PutAsJsonAsync(path, metadata);

@@ -346,6 +346,123 @@ namespace NotebookYt.Api.Migrations
                     b.ToTable("CreationReceipt");
                 });
 
+            modelBuilder.Entity("NotebookYt.Api.Studio.EditorialAssessment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Approved")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ArtifactId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtifactId");
+
+                    b.HasIndex("ProductionId");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.ToTable("EditorialAssessment");
+                });
+
+            modelBuilder.Entity("NotebookYt.Api.Studio.EditorialConfiguration", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ActiveSnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ContentNicheId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DraftJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ProductionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActiveSnapshotId");
+
+                    b.HasIndex("ChannelId")
+                        .IsUnique();
+
+                    b.HasIndex("ContentNicheId")
+                        .IsUnique();
+
+                    b.HasIndex("ProductionId")
+                        .IsUnique();
+
+                    b.ToTable("EditorialConfiguration", t =>
+                        {
+                            t.HasCheckConstraint("CK_EditorialConfiguration_Scope", "num_nonnulls(\"ChannelId\", \"ContentNicheId\", \"ProductionId\") = 1 AND \"Version\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("NotebookYt.Api.Studio.EditorialPackageSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ApprovedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("ConfigurationVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SourcePackageId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourcePackageId");
+
+                    b.HasIndex("ProductionId", "ConfigurationVersion")
+                        .IsUnique();
+
+                    b.ToTable("EditorialPackageSnapshot");
+                });
+
             modelBuilder.Entity("NotebookYt.Api.Studio.EditorialTopic", b =>
                 {
                     b.Property<Guid>("Id")
@@ -572,6 +689,24 @@ namespace NotebookYt.Api.Migrations
                         {
                             t.HasCheckConstraint("CK_Artifact_State", "\"SizeBytes\" > 0 AND \"Status\" IN ('PendingInspection','Valid','Rejected','Missing') AND \"Kind\" IN ('Video','Document','Thumbnail')");
                         });
+                });
+
+            modelBuilder.Entity("NotebookYt.Api.Studio.NarrativeDefinition", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NarrativeDefinition");
                 });
 
             modelBuilder.Entity("NotebookYt.Api.Studio.NicheSettings", b =>
@@ -1058,6 +1193,65 @@ namespace NotebookYt.Api.Migrations
                     b.HasOne("NotebookYt.Api.Production", null)
                         .WithMany()
                         .HasForeignKey("ProductionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NotebookYt.Api.Studio.EditorialAssessment", b =>
+                {
+                    b.HasOne("NotebookYt.Api.Studio.MediaArtifact", null)
+                        .WithMany()
+                        .HasForeignKey("ArtifactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("NotebookYt.Api.Production", null)
+                        .WithMany()
+                        .HasForeignKey("ProductionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("NotebookYt.Api.Studio.EditorialPackageSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NotebookYt.Api.Studio.EditorialConfiguration", b =>
+                {
+                    b.HasOne("NotebookYt.Api.Studio.EditorialPackageSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("ActiveSnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("NotebookYt.Api.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("NotebookYt.Api.ContentNiche", null)
+                        .WithMany()
+                        .HasForeignKey("ContentNicheId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("NotebookYt.Api.Production", null)
+                        .WithMany()
+                        .HasForeignKey("ProductionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("NotebookYt.Api.Studio.EditorialPackageSnapshot", b =>
+                {
+                    b.HasOne("NotebookYt.Api.Production", null)
+                        .WithMany()
+                        .HasForeignKey("ProductionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("NotebookYt.Api.Studio.SourcePackage", null)
+                        .WithMany()
+                        .HasForeignKey("SourcePackageId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

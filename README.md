@@ -36,6 +36,8 @@ Guardar primero el canal en Semana editorial. En Centro de producción, completa
 
 ## Recorrido NotebookLM
 
+La dirección editorial por episodio, herencia de canal y nicho, arquetipos editables, opciones compatibles de Video Overview, paquetes versionados y revisión detallada se describen en [Editorial intelligence](doc/EDITORIAL_INTELLIGENCE.md). En las producciones nuevas, guarda y aprueba **Dirección editorial → Fuentes y paquete** antes de continuar con las tareas de NotebookLM. Los paquetes históricos mantienen su contrato de revisión anterior.
+
 1. Registrar fuentes con procedencia y definir el contexto editorial.
 2. Congelar el paquete; descargarlo o copiar sus instrucciones.
 3. Crear y preparar el notebook por API Enterprise si se dispone de licencia, proyecto y OAuth; en otro caso, realizar las tareas indicadas en la interfaz oficial.
@@ -95,7 +97,7 @@ Los archivos sintéticos se usan exclusivamente como fixtures técnicos en prueb
 
 ## Operación y persistencia
 
-Hay tres migraciones acumulativas, conservando el historial auditado. `--migrate` aplica migraciones explícitamente y termina sin arrancar el servidor. No se usa `EnsureCreated`.
+Hay cuatro migraciones acumulativas, conservando el historial auditado. `--migrate` aplica migraciones explícitamente y termina sin arrancar el servidor. No se usa `EnsureCreated`.
 
 Los estados editoriales iniciales siguen disponibles. El espacio de trabajo ampliado mantiene etapas, tareas, trabajos y publicación separados. Los snapshots editoriales, paquetes, revisiones y eventos son inmutables. Las escrituras de la API y las reclamaciones de trabajos se coordinan con PostgreSQL; los trabajos usan propietario, lease renovable, recuperación y reintentos acotados.
 

@@ -74,6 +74,7 @@ app.Use(async (context, next) =>
 });
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapStudio();
+app.MapEditorialIntelligence();
 app.MapMedia();
 app.MapSchedule();
 app.MapGoogleAuthorization();
@@ -171,6 +172,8 @@ app.MapPut("/api/productions/{id:guid}", async (Guid id, ProductionEdit input, E
     if (production is null) return Results.NotFound();
     if (production.Status == ProductionStatus.Cancelled) return Results.Problem(statusCode: 409, detail: "Cancelled productions are immutable.");
     if (await db.Set<YouTubeUpload>().AnyAsync(u => u.ProductionId == id)) throw new StudioException(409, "Los datos de una subida están congelados.");
+    if (production.Topic != input.Topic?.Trim() && await db.Set<EditorialConfiguration>().AnyAsync(c => c.ProductionId == id && c.ActiveSnapshotId != null))
+        throw new StudioException(409, "El tema forma parte del paquete editorial aprobado. Abre una revisión o prepara otra producción antes de cambiarlo.");
     if (string.IsNullOrWhiteSpace(input.Topic) || input.Topic.Length > 300 || input.PlannedDate == default)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["production"] = ["Invalid topic or date."] });
     production.Topic = input.Topic.Trim();

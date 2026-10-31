@@ -57,6 +57,7 @@ public class StudioIntegrationTests(PostgresFixture fixture) : IClassFixture<Pos
         var source = new { title = "Operator research", kind = "Note", url = "", notes = "Controlled research note, no fabricated citation", classification = "Primary", provenance = "Test fixture authored for this test", included = true, artifactId = (Guid?)null };
         await Body(await Client.PostAsJsonAsync(path + "/sources", source));
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PostAsJsonAsync(path + "/sources", source)).StatusCode);
+        await EditorialTestSupport.Prepare(Client, id);
         var package = await Body(await Client.PostAsync(path + "/package", null)); var second = await Body(await Client.PostAsync(path + "/package", null));
         Assert.Equal(package.GetProperty("id").GetGuid(), second.GetProperty("id").GetGuid());
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PostAsJsonAsync(path + "/sources", source)).StatusCode);
@@ -65,6 +66,7 @@ public class StudioIntegrationTests(PostgresFixture fixture) : IClassFixture<Pos
         var tasks = detail.GetProperty("tasks").EnumerateArray().ToDictionary(t => t.GetProperty("kind").GetString()!, t => t.GetProperty("id").GetGuid());
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PostAsJsonAsync($"/api/studio/tasks/{tasks["StartVideoGeneration"]}/complete", new { attested = true, evidence = "Not yet allowed" })).StatusCode);
         await Body(await Client.PutAsJsonAsync($"/api/productions/{id}/notebook", new { url = "https://notebooklm.google.com/notebook/test-studio" }));
+        await EditorialTestSupport.Attest(Client, id);
         foreach (var step in StudioRules.ManualSteps.Take(7)) await Body(await Client.PostAsJsonAsync($"/api/studio/tasks/{tasks[step.Kind]}/complete", new { attested = true, evidence = "Controlled operator attestation, not provider verification" }));
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PostAsJsonAsync($"/api/studio/tasks/{tasks["ImportNotebookVideo"]}/complete", new { attested = true, evidence = "No file" })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PutAsJsonAsync($"/api/productions/{id}/notebook", new { url = "https://notebooklm.google.com/notebook/different" })).StatusCode);

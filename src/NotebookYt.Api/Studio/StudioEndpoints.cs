@@ -133,7 +133,14 @@ public static class StudioEndpoints
         api.MapPost("/productions/{id:guid}/package", async (Guid id, EditorialDb db) =>
         {
             var p = await StudioRules.Editable(db, id); var w = await StudioRules.Workspace(db, id);
-            var existing = await db.Set<SourcePackage>().SingleOrDefaultAsync(s => s.ProductionId == id);
+            var editorial = await db.Set<EditorialConfiguration>().SingleOrDefaultAsync(s => s.ProductionId == id);
+            if (editorial is not null)
+            {
+                if (editorial.ActiveSnapshotId is null) throw new StudioException(409, "Aprueba la vista previa en Dirección editorial antes de preparar NotebookLM.");
+                var snapshot = await db.Set<EditorialPackageSnapshot>().FindAsync(editorial.ActiveSnapshotId);
+                return Results.Ok(await db.Set<SourcePackage>().FindAsync(snapshot!.SourcePackageId));
+            }
+            var existing = await db.Set<SourcePackage>().OrderByDescending(s => s.Version).FirstOrDefaultAsync(s => s.ProductionId == id);
             if (existing is not null) return Results.Ok(existing);
             var sources = await db.Set<ResearchSource>().Where(s => s.ProductionId == id && s.Included).OrderBy(s => s.RegisteredAtUtc).ToListAsync();
             if (sources.Count == 0 || string.IsNullOrWhiteSpace(w.Objective)) throw new StudioException(409, "Indica el objetivo y al menos una fuente con procedencia.");
@@ -157,6 +164,12 @@ public static class StudioEndpoints
             if (StudioRules.ManualSteps.Take(index).Any(s => !tasks.Any(t => t.Kind == s.Kind && t.Status == "Completed"))) throw new StudioException(409, "Completa primero la tarea anterior.");
             if (task.Kind == "CreateNotebook" && !await db.NotebookReferences.AnyAsync(n => n.ProductionId == task.ProductionId)) throw new StudioException(409, "Registra primero la URL del notebook.");
             if (task.Kind == "ImportNotebookVideo" && !await db.Set<MediaArtifact>().AnyAsync(a => a.ProductionId == task.ProductionId && a.Kind == "Video" && a.Status == "Valid" && a.Origin == "OperatorAttested")) throw new StudioException(409, "Falta un vídeo real inspeccionado con procedencia declarada.");
+            var editorial = await db.Set<EditorialConfiguration>().SingleOrDefaultAsync(c => c.ProductionId == task.ProductionId);
+            if (editorial is not null)
+            {
+                if (editorial.ActiveSnapshotId is null) throw new StudioException(409, "Aprueba primero el paquete editorial vigente.");
+                if (task.Kind == "ConfigureVideoOverview" && !await db.Set<StudioEvent>().AnyAsync(e => e.ProductionId == task.ProductionId && e.Kind == "EditorialSettingsAttested" && e.Detail.Contains(editorial.ActiveSnapshotId.Value.ToString()))) throw new StudioException(409, "Registra los ajustes realmente usados en Dirección editorial.");
+            }
             if (!input.Attested) throw new StudioException(400, "Debes declarar expresamente que has realizado la operación.");
             task.Evidence = StudioRules.Text(input.Evidence, 4000, true); task.EvidenceKind = "OperatorAttested"; task.Status = "Completed"; task.CompletedAtUtc = DateTime.UtcNow;
             var w = await StudioRules.Workspace(db, task.ProductionId);
@@ -225,7 +238,8 @@ public static class StudioEndpoints
         var niche = await db.Niches.FindAsync(p.ContentNicheId); var ns = await db.Set<NicheSettings>().FindAsync(p.ContentNicheId); var cs = await db.Set<ChannelSettings>().FindAsync(p.ChannelId);
         var w = new ProductionWorkspace { Id = p.Id, TopicId = topicId, Objective = p.Topic, YouTubeTitle = p.Topic.Length > 100 ? p.Topic[..100] : p.Topic, Audience = ns?.Audience ?? cs?.Audience ?? "", Language = cs?.Language ?? "es", Visibility = cs?.Visibility ?? "private",
             EditorialSnapshot = JsonSerializer.Serialize(new { niche = niche?.ToResponse(), nicheSettings = ns, channelSettings = cs }) };
-        db.Add(w); StudioRules.Event(db, p.Id, "WorkspaceOpened", "Snapshot editorial congelado"); return w;
+        db.Add(w); db.Add(new EditorialConfiguration { ProductionId = p.Id });
+        StudioRules.Event(db, p.Id, "WorkspaceOpened", "Snapshot editorial congelado"); return w;
     }
 }
 

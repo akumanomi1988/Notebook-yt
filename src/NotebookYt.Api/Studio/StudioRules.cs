@@ -75,6 +75,8 @@ public static class StudioRules
         if (w is null) return "Abrir espacio de trabajo";
         var upload = await db.Set<YouTubeUpload>().SingleOrDefaultAsync(x => x.ProductionId == p.Id);
         if (upload is not null) return upload.Status switch { "Published" => "Publicación confirmada por YouTube", "NeedsAttention" => "Resolver la subida sin crear otra", "Scheduled" => "Esperar y verificar publicación", "Uploaded" => "Verificar estado en YouTube", _ => "Consultar trabajo de subida" };
+        var editorial = await db.Set<EditorialConfiguration>().SingleOrDefaultAsync(x => x.ProductionId == p.Id);
+        if (editorial is not null && editorial.ActiveSnapshotId is null) return "Completar Dirección editorial, seleccionar fuentes y aprobar el paquete del episodio";
         if (!await db.Set<SourcePackage>().AnyAsync(x => x.ProductionId == p.Id)) return "Preparar fuentes y congelar paquete";
         var tasks = await db.Set<ManualNotebookTask>().Where(t => t.ProductionId == p.Id).ToListAsync();
         foreach (var step in ManualSteps)

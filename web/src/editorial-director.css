@@ -1,0 +1,16 @@
+.editorial-director { max-width: 1050px; }
+.editorial-step-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 18px; }
+.editorial-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
+.editorial-field { min-width: 0; }
+.editorial-field label, .editorial-director label { display: block; }
+.editorial-field textarea, .editorial-field select, .editorial-director textarea { width: 100%; box-sizing: border-box; }
+.editorial-field-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; color: #54655f; }
+.editorial-field-meta button { padding: 4px 6px; font-size: 12px; }
+.editorial-director .editorial-output { min-height: 260px; line-height: 1.5; }
+.editorial-save { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; border-top: 1px solid #ccd6d0; padding-block: 18px; margin-top: 24px; }
+.editorial-recommendation { padding-block: 16px; border-block: 1px solid #ccd6d0; margin-block: 16px; }
+.editorial-table { overflow-x: auto; }
+.editorial-table table { width: 100%; border-collapse: collapse; }
+.editorial-table th, .editorial-table td { text-align: left; padding: 12px; border-bottom: 1px solid #ccd6d0; vertical-align: top; }
+.editorial-table small { display: block; color: #54655f; margin-top: 5px; }
+@media (max-width: 700px) { .editorial-form-grid { grid-template-columns: 1fr; } .editorial-step-nav { gap: 4px; } .editorial-step-nav button { font-size: 13px; padding: 8px; } }

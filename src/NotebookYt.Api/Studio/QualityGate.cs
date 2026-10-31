@@ -16,6 +16,7 @@ public static class QualityGate
         if (!await db.NotebookReferences.AnyAsync(n => n.ProductionId == id)) failures.Add("Falta el notebook.");
         if (!await db.Set<ManualNotebookTask>().AnyAsync(t => t.ProductionId == id) || await db.Set<ManualNotebookTask>().AnyAsync(t => t.ProductionId == id && t.Status != "Completed")) failures.Add("Quedan tareas de NotebookLM pendientes.");
         var artifact = await db.Set<MediaArtifact>().SingleOrDefaultAsync(a => a.Id == w.CanonicalArtifactId && a.ProductionId == id);
+        failures.AddRange(await EditorialWorkflow.ReviewFailures(db, id, w.CanonicalArtifactId));
         if (artifact is null || artifact.Kind != "Video" || artifact.Status != "Valid" || artifact.Origin != "OperatorAttested" || !storage.Exists(artifact.StorageKey)) failures.Add("Falta un vídeo canónico válido de NotebookLM.");
         else
         {

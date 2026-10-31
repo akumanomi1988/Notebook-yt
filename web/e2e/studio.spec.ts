@@ -1,3 +1,4 @@
+import { prepareEditorial } from './editorial-support';
 ﻿import { expect, test } from './authenticated';
 
 test('studio research and manual notebook workflow persist against the actual API', async ({ page }) => {
@@ -19,6 +20,9 @@ test('studio research and manual notebook workflow persist against the actual AP
   await page.getByLabel('Procedencia y autorización', { exact: true }).fill('Authored specifically for this test.');
   await page.getByRole('button', { name: 'Registrar fuente', exact: true }).click();
   await expect(page.getByText('Operator notes', { exact: true })).toBeVisible();
+  await prepareEditorial(page, 'Operator notes');
+  await page.getByRole('button', { name: 'Aprobar paquete editorial', exact: true }).click();
+  await page.getByRole('button', { name: 'Investigación', exact: true }).click();
   await page.getByRole('button', { name: 'Congelar paquete y preparar tareas', exact: true }).click();
   await page.locator('summary').filter({ hasText: 'Paquete v1' }).click();
   await expect(page.getByRole('link', { name: 'Descargar paquete', exact: true })).toBeVisible();
