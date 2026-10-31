@@ -70,7 +70,10 @@ public sealed class StudioWorker(IServiceScopeFactory scopes, IConfiguration con
                 case "PublishYouTube": await services.GetRequiredService<YouTubePublishing>().Publish(current, operation.Token); break;
                 case "CreateNotebook": await services.GetRequiredService<NotebookIntegration>().Create(current, operation.Token); break;
                 case "SyncNotebookSources": await services.GetRequiredService<NotebookIntegration>().Sync(current, operation.Token); break;
-                case "RunNotebookLmExpertStage": await services.GetRequiredService<NotebookLmExpertOrchestrator>().Execute(current, operation.Token); break;
+                case "RunNotebookLmExpertStage":
+                    await services.GetRequiredService<NotebookLmExpertOrchestrator>().Execute(current, operation.Token);
+                    if (current.ResourceId is Guid expertRunId) await BlockFollowingExpertStages(context, expertRunId, ct);
+                    break;
                 case "RunNotebookLmOperation": await services.GetRequiredService<NotebookLmOperationProcessor>().Execute(current, operation.Token); break;
                 default: throw new StudioException(400, "Tipo de trabajo desconocido.");
             }
@@ -105,6 +108,21 @@ public sealed class StudioWorker(IServiceScopeFactory scopes, IConfiguration con
         var ownership = await context.Set<BackgroundJob>().AsNoTracking().Where(j => j.Id == current.Id).Select(j => new { j.LeaseOwner, j.Status }).SingleAsync(CancellationToken.None);
         if (ownership.LeaseOwner != owner || ownership.Status is "Cancelled" or "NeedsAttention") return;
         await context.SaveChangesAsync(CancellationToken.None); await completed.CommitAsync(CancellationToken.None);
+    }
+
+    private static async Task BlockFollowingExpertStages(EditorialDb db, Guid runId, CancellationToken cancellationToken)
+    {
+        var failed = await db.Set<ExpertWorkflowRun>().SingleOrDefaultAsync(x => x.Id == runId, cancellationToken);
+        if (failed?.WorkflowId is not Guid workflowId || failed.Status is not ("Failed" or "OutcomeUnknown")) return;
+        var following = await db.Set<ExpertWorkflowRun>().Where(x => x.WorkflowId == workflowId && x.Sequence > failed.Sequence &&
+            (x.Status == "WaitingForExecution" || x.Status == "WaitingForApproval")).ToListAsync(cancellationToken);
+        foreach (var stage in following)
+        {
+            stage.Status = "Blocked";
+            stage.LastErrorCode = failed.Status == "OutcomeUnknown" ? "PRIOR_STAGE_OUTCOME_UNKNOWN" : "PRIOR_STAGE_FAILED";
+        }
+        if (following.Count > 0)
+            StudioRules.Event(db, failed.ProductionId, "NotebookLmExpertWorkflowStopped", $"{workflowId}; stage={failed.Id}; status={failed.Status}; code={failed.LastErrorCode}");
     }
     private async Task RenewLease(Guid id, Guid owner, CancellationTokenSource operation)
     {

@@ -68,7 +68,7 @@ public class BackupRestoreTests(PostgresFixture fixture) : IClassFixture<Postgre
                 var sql = $"SELECT COALESCE(json_agg(t ORDER BY t.\"Id\")::text, '[]') FROM \"{table}\" t";
                 Assert.Equal(await new NpgsqlCommand(sql, original).ExecuteScalarAsync(), await new NpgsqlCommand(sql, restored).ExecuteScalarAsync());
             }
-            Assert.Equal(6, (await model.Database.GetAppliedMigrationsAsync()).Count());
+            Assert.Equal(8, (await model.Database.GetAppliedMigrationsAsync()).Count());
             using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(backup, "manifest.json")));
             foreach (var file in manifest.RootElement.GetProperty("files").EnumerateArray())
             {

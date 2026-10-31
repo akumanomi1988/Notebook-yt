@@ -128,6 +128,8 @@ public static class NotebookLmEndpoints
             var production = await db.Productions.FindAsync([productionId], ct) ?? throw new StudioException(404, "Producción inexistente.");
             if (production.Status == ProductionStatus.Cancelled) throw new StudioException(409, "Una producción cancelada no admite operaciones externas.");
             if (input.Steps is null || input.Steps.Count is < 1 or > 12) throw new StudioException(400, "El flujo debe contener entre 1 y 12 etapas.");
+            var mode = string.IsNullOrWhiteSpace(input.Mode) ? "Automatic" : input.Mode.Trim();
+            if (mode is not ("Automatic" or "Supervised")) throw new StudioException(400, "El modo debe ser Automatic o Supervised.");
             var key = request.Headers["Idempotency-Key"].ToString();
             if (string.IsNullOrWhiteSpace(key) || key.Length > 128) throw new StudioException(400, "Se requiere una cabecera Idempotency-Key válida.");
             var workflowId = WorkflowGuid(productionId, key);
@@ -158,7 +160,9 @@ public static class NotebookLmEndpoints
                     IdempotencyKey = $"{workflowId:N}:{index + 1}", RequestHash = Hash(JsonSerializer.Serialize(step)),
                     Prompt = step.Prompt.Trim(), SourceIdsJson = JsonSerializer.Serialize(step.SourceIds.Distinct(StringComparer.Ordinal).ToArray()),
                     InputContextJson = JsonSerializer.Serialize(new { productionId, production.Topic, workflowId, step = index + 1, totalSteps = input.Steps.Count }),
-                    Status = index == 0 ? "Pending" : "WaitingForApproval", RequestedAtUtc = DateTime.UtcNow
+                    WorkflowMode = mode,
+                    Status = index == 0 ? "Pending" : mode == "Automatic" ? "WaitingForExecution" : "WaitingForApproval",
+                    RequestedAtUtc = DateTime.UtcNow
                 });
             }
             if (await db.Set<ExpertWorkflowRun>().AnyAsync(x => x.ProductionId == productionId && runs.Select(r => r.Sequence).Contains(x.Sequence) && x.Status != "Rejected", ct))
@@ -187,9 +191,9 @@ public static class NotebookLmEndpoints
                     .OrderBy(x => x.Sequence).ToListAsync(ct);
                 if (!input.Approved)
                 {
-                    foreach (var pending in following.Where(x => x.Status == "WaitingForApproval")) { pending.Status = "Blocked"; pending.LastErrorCode = "PRIOR_STAGE_REJECTED"; }
+                    foreach (var pending in following.Where(x => x.Status is "WaitingForApproval" or "WaitingForExecution")) { pending.Status = "Blocked"; pending.LastErrorCode = "PRIOR_STAGE_REJECTED"; }
                 }
-                else
+                else if (run.WorkflowMode == "Supervised")
                 {
                     var next = following.FirstOrDefault(x => x.Status == "WaitingForApproval");
                     if (next is not null)
@@ -272,6 +276,6 @@ public record ExpertInput(string Name, string Specialization, string Description
 public record ExpertUpdate(string Name, string Specialization, string Description, string Instructions,
     List<Guid> NicheIds, List<string> StageKeys, bool Enabled, int Version);
 public sealed record ExpertRunInput(Guid ExpertId, string StageKey, int Sequence, string Prompt, List<string> SourceIds);
-public sealed record ExpertWorkflowInput(List<ExpertWorkflowStepInput> Steps);
+public sealed record ExpertWorkflowInput(List<ExpertWorkflowStepInput> Steps, string Mode = "Automatic");
 public sealed record ExpertWorkflowStepInput(Guid ExpertId, string StageKey, string Prompt, List<string> SourceIds);
 public sealed record ExpertReviewInput(bool Approved, string Evidence, string? CorrectedResponse);

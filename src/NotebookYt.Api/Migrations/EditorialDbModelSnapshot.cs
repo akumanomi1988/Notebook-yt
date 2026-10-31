@@ -538,6 +538,11 @@ namespace NotebookYt.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ExecutionNotebookId")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
                     b.Property<Guid>("ExpertId")
                         .HasColumnType("uuid");
 
@@ -595,12 +600,18 @@ namespace NotebookYt.Api.Migrations
                         .HasColumnType("character varying(80)");
 
                     b.Property<string>("Status")
+                        .IsConcurrencyToken()
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
                     b.Property<Guid?>("WorkflowId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("WorkflowMode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("WorkflowRequestHash")
                         .IsRequired()
@@ -622,7 +633,7 @@ namespace NotebookYt.Api.Migrations
 
                     b.ToTable("ExpertWorkflowRun", t =>
                         {
-                            t.HasCheckConstraint("CK_ExpertRun_Status", "\"Status\" IN ('Pending','WaitingForApproval','Running','AwaitingReview','Approved','Rejected','Blocked','OutcomeUnknown','Failed')");
+                            t.HasCheckConstraint("CK_ExpertRun_Status", "\"Status\" IN ('Pending','WaitingForApproval','WaitingForExecution','Running','AwaitingReview','Approved','Rejected','Blocked','OutcomeUnknown','Failed')");
                         });
                 });
 

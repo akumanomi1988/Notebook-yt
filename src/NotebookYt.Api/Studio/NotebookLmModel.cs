@@ -23,6 +23,8 @@ public static class NotebookLmModel
         model.Entity<ExpertWorkflowRun>().Property(x => x.IdempotencyKey).HasMaxLength(180);
         model.Entity<ExpertWorkflowRun>().Property(x => x.RequestHash).HasMaxLength(64);
         model.Entity<ExpertWorkflowRun>().Property(x => x.WorkflowRequestHash).HasMaxLength(64);
+        model.Entity<ExpertWorkflowRun>().Property(x => x.WorkflowMode).HasMaxLength(20);
+        model.Entity<ExpertWorkflowRun>().Property(x => x.ExecutionNotebookId).HasMaxLength(160);
         model.Entity<ExpertWorkflowRun>().Property(x => x.LastErrorCode).HasMaxLength(80);
         model.Entity<ExpertWorkflowRun>().HasIndex(x => x.IdempotencyKey).IsUnique();
         model.Entity<ExpertWorkflowRun>().HasIndex(x => new { x.WorkflowId, x.Sequence });
@@ -30,7 +32,7 @@ public static class NotebookLmModel
         model.Entity<ExpertWorkflowRun>().HasOne<Production>().WithMany().HasForeignKey(x => x.ProductionId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<ExpertWorkflowRun>().HasOne<NotebookExpert>().WithMany().HasForeignKey(x => x.ExpertId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<ExpertWorkflowRun>().ToTable(t => t.HasCheckConstraint("CK_ExpertRun_Status",
-            "\"Status\" IN ('Pending','WaitingForApproval','Running','AwaitingReview','Approved','Rejected','Blocked','OutcomeUnknown','Failed')"));
+            "\"Status\" IN ('Pending','WaitingForApproval','WaitingForExecution','Running','AwaitingReview','Approved','Rejected','Blocked','OutcomeUnknown','Failed')"));
 
         model.Entity<NotebookLmOperation>().HasKey(x => x.Id);
         model.Entity<NotebookLmOperation>().Property(x => x.Kind).HasMaxLength(60);

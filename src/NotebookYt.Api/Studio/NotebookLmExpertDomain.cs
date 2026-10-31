@@ -27,6 +27,10 @@ public sealed class ExpertWorkflowRun
     public Guid ProductionId { get; set; }
     public Guid? WorkflowId { get; set; }
     public string WorkflowRequestHash { get; set; } = "";
+    /// <summary>Automatic advances only after structural/source validation; supervised waits for operator review.</summary>
+    public string WorkflowMode { get; set; } = "Supervised";
+    /// <summary>Per-production/expert notebook copy; keeps NotebookLM's latest conversation isolated.</summary>
+    public string ExecutionNotebookId { get; set; } = "";
     public Guid ExpertId { get; set; }
     public string StageKey { get; set; } = "";
     public int Sequence { get; set; }

@@ -33,6 +33,7 @@ public sealed class NotebookLmWorkflowTests(PostgresFixture fixture) : IClassFix
 
         var body = new
         {
+            mode = "Supervised",
             steps = new[]
             {
                 new { expertId, stageKey = "research", prompt = "Verify the evidence.", sourceIds = new[] { "source_a" } },
@@ -96,6 +97,21 @@ public sealed class NotebookLmWorkflowTests(PostgresFixture fixture) : IClassFix
         var sameKeyForAnotherProduction = new HttpRequestMessage(HttpMethod.Post, $"/api/studio/productions/{secondProductionId}/expert-workflows") { Content = JsonContent.Create(body) };
         sameKeyForAnotherProduction.Headers.Add("Idempotency-Key", "workflow-test-key");
         Assert.Equal(HttpStatusCode.Accepted, (await fixture.Client.SendAsync(sameKeyForAnotherProduction)).StatusCode);
+
+        var automaticBody = new { steps = new[] { new { expertId, stageKey = "research", prompt = "Verify the evidence.", sourceIds = new[] { "source_a" } }, new { expertId, stageKey = "strategy", prompt = "Recommend an angle.", sourceIds = new[] { "source_a" } } } };
+        var automaticRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/studio/productions/{secondProductionId}/expert-workflows") { Content = JsonContent.Create(automaticBody) };
+        automaticRequest.Headers.Add("Idempotency-Key", "automatic-workflow-test-key");
+        var automaticCreated = await fixture.Client.SendAsync(automaticRequest);
+        Assert.Equal(HttpStatusCode.Accepted, automaticCreated.StatusCode);
+        var automaticRuns = await automaticCreated.Content.ReadFromJsonAsync<ExpertWorkflowRun[]>();
+        Assert.NotNull(automaticRuns);
+        Assert.Equal(new[] { "Pending", "WaitingForExecution" }, automaticRuns.Select(x => x.Status));
+        Assert.All(automaticRuns, x => Assert.Equal("Automatic", x.WorkflowMode));
+
+        var invalidModeRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/studio/productions/{secondProductionId}/expert-workflows")
+        { Content = JsonContent.Create(new { mode = "Unattended", steps = automaticBody.steps }) };
+        invalidModeRequest.Headers.Add("Idempotency-Key", "invalid-workflow-mode-key");
+        Assert.Equal(HttpStatusCode.BadRequest, (await fixture.Client.SendAsync(invalidModeRequest)).StatusCode);
     }
 
     private EditorialDb CreateDb() => new(new DbContextOptionsBuilder<EditorialDb>().UseNpgsql(fixture.ConnectionString).Options);

@@ -55,6 +55,17 @@ public sealed class NotebookLmCliTests
     }
 
     [Fact]
+    public async Task IsolatedExpertContextUsesNonDestructiveNotebookCopyCommand()
+    {
+        var runner = new RecordingRunner(); var provider = new NotebookLmCliProvider(runner);
+        var result = await provider.CopyNotebookAsync("expert_book", "NotebookYt isolated a91c");
+
+        Assert.True(result.Success);
+        Assert.Equal(new[] { "copy", "NotebookYt isolated a91c", "--notebook", "expert_book", "--json" }, runner.Arguments[0]);
+        Assert.DoesNotContain("--new", runner.Arguments[0]);
+    }
+
+    [Fact]
     public async Task InvalidLanguageOrCustomStyleWithoutPromptDoesNotCallCli()
     {
         var runner = new RecordingRunner(); var provider = new NotebookLmCliProvider(runner);

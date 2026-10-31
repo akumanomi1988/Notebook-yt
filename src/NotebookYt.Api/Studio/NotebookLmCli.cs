@@ -27,6 +27,7 @@ public interface INotebookLmProvider
     Task<NotebookLmCliResult> ListNotebooksAsync(CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> GetNotebookAsync(string notebookId, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> CreateNotebookAsync(string title, CancellationToken cancellationToken = default);
+    Task<NotebookLmCliResult> CopyNotebookAsync(string notebookId, string title, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> ListSourcesAsync(string notebookId, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> AddSourceAsync(string notebookId, string url, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> ListArtifactsAsync(string notebookId, string type = "all", CancellationToken cancellationToken = default);
@@ -205,6 +206,11 @@ public sealed class NotebookLmCliProvider(INotebookLmCliRunner runner) : INotebo
     {
         if (string.IsNullOrWhiteSpace(title) || title.Length > 200) return Task.FromResult(new NotebookLmCliResult(false, "INVALID_TITLE", null, null));
         return Json(["create", title.Trim(), "--json"], mutating: true, ct: cancellationToken);
+    }
+    public Task<NotebookLmCliResult> CopyNotebookAsync(string notebookId, string title, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 200) return Task.FromResult(new NotebookLmCliResult(false, "INVALID_TITLE", null, null));
+        return Json(["copy", title.Trim(), "--notebook", Id(notebookId), "--json"], mutating: true, ct: cancellationToken);
     }
     public Task<NotebookLmCliResult> ListSourcesAsync(string notebookId, CancellationToken cancellationToken = default) =>
         Json(["source", "list", "--notebook", Id(notebookId), "--json"], ct: cancellationToken);
