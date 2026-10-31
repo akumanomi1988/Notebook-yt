@@ -23,6 +23,17 @@ public sealed class StudioWorker(IServiceScopeFactory scopes, IConfiguration con
             var db = scope.ServiceProvider.GetRequiredService<EditorialDb>(); await using var transaction = await db.Database.BeginTransactionAsync(ct);
             await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(74819321)", ct);
             await EditorialScheduler.Maintain(db, DateTime.UtcNow);
+            var resumedQuotaOperations = await db.Set<NotebookLmOperation>().Where(x => x.Status == "DeferredQuota" && x.ModifiedAtUtc <= DateTime.UtcNow.AddMinutes(-5))
+                .Select(x => x.Id).Take(20).ToListAsync(ct);
+            foreach (var operationId in resumedQuotaOperations)
+            {
+                var external = await db.Set<NotebookLmOperation>().FindAsync([operationId], ct);
+                if (external is null || external.Status != "DeferredQuota") continue;
+                var queued = await db.Set<BackgroundJob>().SingleOrDefaultAsync(x => x.Kind == "RunNotebookLmOperation" && x.ResourceId == operationId && x.Status == "NeedsAttention", ct);
+                if (queued is null) continue;
+                external.Status = "Pending"; external.ModifiedAtUtc = DateTime.UtcNow;
+                queued.Status = "Queued"; queued.AvailableAtUtc = DateTime.UtcNow; queued.LastError = "Se vuelve a comprobar la cuota efectiva de NotebookLM.";
+            }
             var job = await db.Set<BackgroundJob>().Where(j => (j.Status == "Queued" && j.AvailableAtUtc <= DateTime.UtcNow && (j.LeaseUntilUtc == null || j.LeaseUntilUtc < DateTime.UtcNow)) || (j.Status == "Running" && j.LeaseUntilUtc < DateTime.UtcNow)).OrderBy(j => j.AvailableAtUtc).FirstOrDefaultAsync(ct);
             if (job is not null)
             {
@@ -59,6 +70,8 @@ public sealed class StudioWorker(IServiceScopeFactory scopes, IConfiguration con
                 case "PublishYouTube": await services.GetRequiredService<YouTubePublishing>().Publish(current, operation.Token); break;
                 case "CreateNotebook": await services.GetRequiredService<NotebookIntegration>().Create(current, operation.Token); break;
                 case "SyncNotebookSources": await services.GetRequiredService<NotebookIntegration>().Sync(current, operation.Token); break;
+                case "RunNotebookLmExpertStage": await services.GetRequiredService<NotebookLmExpertOrchestrator>().Execute(current, operation.Token); break;
+                case "RunNotebookLmOperation": await services.GetRequiredService<NotebookLmOperationProcessor>().Execute(current, operation.Token); break;
                 default: throw new StudioException(400, "Tipo de trabajo desconocido.");
             }
             if (current.Status == "Running") current.Status = "Succeeded";
@@ -66,7 +79,14 @@ public sealed class StudioWorker(IServiceScopeFactory scopes, IConfiguration con
         }
         catch (Exception ex)
         {
-            var ambiguous = current.Kind == "CreateNotebook" || (current.Kind == "SyncNotebookSources" && ex is not StudioException { Status: 503 });
+            var operationLedger = current.Kind == "RunNotebookLmOperation" && current.ResourceId is Guid operationId
+                ? await context.Set<NotebookLmOperation>().FindAsync([operationId], CancellationToken.None) : null;
+            var ambiguous = current.Kind == "CreateNotebook" || (current.Kind == "SyncNotebookSources" && ex is not StudioException { Status: 503 }) ||
+                (operationLedger is not null && operationLedger.Status == "Running");
+            if (operationLedger is not null && operationLedger.Status == "Running")
+            {
+                operationLedger.Status = "OutcomeUnknown"; operationLedger.ErrorCode = "OUTCOME_UNKNOWN"; operationLedger.ModifiedAtUtc = DateTime.UtcNow;
+            }
             var retryable = ex is HttpRequestException or TimeoutException or OperationCanceledException || ex is StudioException { Status: 429 or 503 };
             current.LastError = ex is StudioException ? ex.Message : "La operación falló; revisa la conexión y las herramientas configuradas. No se han registrado credenciales en el error.";
             current.Status = ambiguous ? "NeedsAttention" : retryable && current.Attempts < 5 ? "Queued" : "Failed";

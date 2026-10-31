@@ -13,6 +13,10 @@ builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 
 builder.Services.AddSingleton<MediaStorage>();
 builder.Services.AddScoped<GoogleAuthorization>();
 builder.Services.AddScoped<NotebookIntegration>();
+builder.Services.AddScoped<NotebookLmExpertOrchestrator>();
+builder.Services.AddScoped<NotebookLmOperationProcessor>();
+builder.Services.AddSingleton<INotebookLmCliRunner, NotebookLmCliRunner>();
+builder.Services.AddScoped<INotebookLmProvider, NotebookLmCliProvider>();
 builder.Services.AddScoped<YouTubePublishing>();
 builder.Services.AddHttpClient("Google", client => client.Timeout = TimeSpan.FromMinutes(2))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false }).RemoveAllLoggers();
@@ -75,6 +79,8 @@ app.Use(async (context, next) =>
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapStudio();
 app.MapEditorialIntelligence();
+app.MapNotebookLm();
+app.MapNotebookLmOperations();
 app.MapMedia();
 app.MapSchedule();
 app.MapGoogleAuthorization();

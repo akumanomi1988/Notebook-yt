@@ -219,6 +219,9 @@ public sealed class YouTubeUpload
     public long BytesConfirmed { get; set; }
     public string LastError { get; set; } = "";
     public DateTime? LastVerifiedAtUtc { get; set; }
+    public string LastObservedPrivacyStatus { get; set; } = "";
+    public string LastObservedTitle { get; set; } = "";
+    public DateTime? LastRemoteMetadataObservedAtUtc { get; set; }
 }
 
 public sealed class CreationReceipt

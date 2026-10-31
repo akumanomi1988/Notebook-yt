@@ -14,6 +14,7 @@ public sealed class EditorialDb(DbContextOptions<EditorialDb> options) : DbConte
     {
         Studio.StudioModel.Configure(model);
         Studio.EditorialIntelligence.Configure(model);
+        Studio.NotebookLmModel.Configure(model);
         model.Entity<Channel>().Property<bool>("Singleton").HasDefaultValue(true).HasSentinel(false);
         model.Entity<Channel>().HasIndex("Singleton").IsUnique();
         model.Entity<Channel>().ToTable(t => t.HasCheckConstraint("CK_Channel_Singleton", "\"Singleton\" = true"));

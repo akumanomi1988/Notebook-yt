@@ -113,13 +113,21 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
         if (video.GetProperty("snippet").GetProperty("channelId").GetString() != connection.ExternalChannelId) throw new StudioException(409, "El vídeo pertenece a otro canal.");
         var status = video.GetProperty("status"); var state = status.GetProperty("uploadStatus").GetString();
         if (state is "failed" or "rejected" or "deleted") { upload.Status = "NeedsAttention"; throw new StudioException(409, "YouTube rechazó o eliminó el vídeo. Revisa su panel."); }
-        upload.Status = state == "processed" && status.GetProperty("privacyStatus").GetString() == "public" ? "Published" : status.TryGetProperty("publishAt", out _) ? "Scheduled" : "Uploaded";
+        var remotePrivacy = status.TryGetProperty("privacyStatus", out var privacyValue) ? privacyValue.GetString() ?? "" : "";
+        var remoteTitle = video.GetProperty("snippet").TryGetProperty("title", out var titleValue) ? titleValue.GetString() ?? "" : "";
+        var observedAt = DateTime.UtcNow;
+        upload.LastObservedPrivacyStatus = remotePrivacy;
+        upload.LastObservedTitle = remoteTitle;
+        upload.LastRemoteMetadataObservedAtUtc = observedAt;
+        upload.Status = state == "processed" && remotePrivacy == "public" ? "Published" : status.TryGetProperty("publishAt", out _) ? "Scheduled" : "Uploaded";
         upload.LastVerifiedAtUtc = DateTime.UtcNow; (await StudioRules.Workspace(db, upload.ProductionId)).Stage = upload.Status;
         if (state is "processed" or "uploaded")
             upload.BytesConfirmed = (await db.Set<MediaArtifact>().FindAsync([upload.ArtifactId], ct))?.SizeBytes ?? upload.BytesConfirmed;
         upload.LastError = "";
         StudioRules.Event(db, upload.ProductionId, "YouTubeStateVerified", upload.Status);
         var metadata = JsonSerializer.Deserialize<PublicationSnapshot>(upload.MetadataSnapshot)!;
+        if (metadata.Visibility != remotePrivacy)
+            StudioRules.Event(db, upload.ProductionId, "YouTubeRemotePrivacyDriftObserved", $"Snapshot={metadata.Visibility}; provider={remotePrivacy}; observed={observedAt:O}");
         if (upload.Status != "Published" && !(state == "processed" && metadata.Visibility == "private" && metadata.PublishAtUtc is null))
         {
             var deadline = (metadata.PublishAtUtc ?? job.CreatedAtUtc).AddDays(3);
