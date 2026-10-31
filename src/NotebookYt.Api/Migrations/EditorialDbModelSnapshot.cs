@@ -599,6 +599,14 @@ namespace NotebookYt.Api.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid?>("WorkflowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WorkflowRequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ExpertId");
@@ -610,9 +618,11 @@ namespace NotebookYt.Api.Migrations
                         .IsUnique()
                         .HasFilter("\"Status\" <> 'Rejected'");
 
+                    b.HasIndex("WorkflowId", "Sequence");
+
                     b.ToTable("ExpertWorkflowRun", t =>
                         {
-                            t.HasCheckConstraint("CK_ExpertRun_Status", "\"Status\" IN ('Pending','Running','AwaitingReview','Approved','Rejected','OutcomeUnknown','Failed')");
+                            t.HasCheckConstraint("CK_ExpertRun_Status", "\"Status\" IN ('Pending','WaitingForApproval','Running','AwaitingReview','Approved','Rejected','Blocked','OutcomeUnknown','Failed')");
                         });
                 });
 

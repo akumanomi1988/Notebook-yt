@@ -123,7 +123,9 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
     private async Task Download(NotebookLmOperation operation, JsonElement root, CancellationToken ct)
     {
         var productionId = operation.ProductionId ?? throw new StudioException(400, "La descarga requiere una producción.");
-        if (!await db.NotebookReferences.AnyAsync(x => x.ProductionId == productionId && x.Url.Contains(operation.NotebookId), ct))
+        var notebookUrl = await db.NotebookReferences.Where(x => x.ProductionId == productionId)
+            .Select(x => x.Url).SingleOrDefaultAsync(ct);
+        if (!NotebookLmBindings.MatchesNotebook(notebookUrl, operation.NotebookId))
             throw new StudioException(409, "Asocia el cuaderno a la producción antes de importar un artefacto.");
         Directory.CreateDirectory(storage.Root);
         var temporary = Path.Combine(storage.Root, Guid.NewGuid().ToString("N") + ".notebooklm-download.mp4");
@@ -304,7 +306,9 @@ public static class NotebookLmOperationEndpoints
                 else
                 {
                     if (input.ProductionId is not Guid productionNotebookId) throw new StudioException(400, "La operación requiere una producción con cuaderno dedicado.");
-                    if (!await db.NotebookReferences.AnyAsync(x => x.ProductionId == productionNotebookId && x.Url.Contains(input.NotebookId!), ct))
+                    var notebookUrl = await db.NotebookReferences.Where(x => x.ProductionId == productionNotebookId)
+                        .Select(x => x.Url).SingleOrDefaultAsync(ct);
+                    if (!NotebookLmBindings.MatchesNotebook(notebookUrl, input.NotebookId!))
                         throw new StudioException(409, "El ID de cuaderno no coincide con la referencia registrada para esta producción.");
                 }
             }
@@ -312,7 +316,9 @@ public static class NotebookLmOperationEndpoints
             {
                 if (input.ProductionId is not Guid productionNotebookId) throw new StudioException(400, "La operación requiere una producción con cuaderno dedicado.");
                 if (await db.Set<NotebookExpert>().AnyAsync(x => x.NotebookId == input.NotebookId, ct)) throw new StudioException(409, "Los cuadernos expertos son conocimiento permanente; usa el cuaderno de la producción para tareas episódicas.");
-                if (!await db.NotebookReferences.AnyAsync(x => x.ProductionId == productionNotebookId && x.Url.Contains(input.NotebookId!), ct)) throw new StudioException(409, "El ID de cuaderno no coincide con la referencia registrada para esta producción.");
+                var notebookUrl = await db.NotebookReferences.Where(x => x.ProductionId == productionNotebookId)
+                    .Select(x => x.Url).SingleOrDefaultAsync(ct);
+                if (!NotebookLmBindings.MatchesNotebook(notebookUrl, input.NotebookId!)) throw new StudioException(409, "El ID de cuaderno no coincide con la referencia registrada para esta producción.");
             }
             if (kind != "CreateNotebook" && !System.Text.RegularExpressions.Regex.IsMatch(input.NotebookId ?? "", "^[A-Za-z0-9_-]{1,160}$")) throw new StudioException(400, "Selecciona un ID de cuaderno NotebookLM real.");
             var sourceIds = input.SourceIds ?? [];

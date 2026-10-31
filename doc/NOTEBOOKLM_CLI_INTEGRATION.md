@@ -18,6 +18,7 @@ The CLI profile lives in `%LOCALAPPDATA%\NotebookYt\operator\notebooklm-cli-prof
 - Notebook metadata, source and artifact listing.
 - Durable, idempotent operations for notebook creation, adding a URL source, deep/fast research, Explainer video generation and exact-artifact video download.
 - Durable expert-to-notebook bindings, source-scoped chat, approved-context transfer, response/citation storage and human approval. Queries continue the notebook's existing chat; the adapter deliberately avoids `ask --new`, which notebooklm-py 0.8.6 documents as permanently deleting the current conversation and its turns.
+- Sequential expert workflows persist an ordered set of stages. Only the first stage is queued; each response must be reviewed and approved before the next stage is queued, and only approved prior responses/references are transferred. Rejecting a stage blocks the remaining stages. A workflow request is idempotent per production and cannot be replayed with a changed payload.
 - A per-account process gate, bounded process timeouts/output, a pinned executable, SSRF checks for source URLs, and no raw stderr/credentials in logs.
 - Generation is not dispatched if the effective Video Overview availability cannot be confirmed. Deferred quota requests are rechecked periodically; ambiguous external outcomes are not automatically retried.
 - Episode research and new episode sources must use that production's registered notebook. Expert notebooks are protected as persistent knowledge stores.
@@ -28,15 +29,17 @@ The CLI profile lives in `%LOCALAPPDATA%\NotebookYt\operator\notebooklm-cli-prof
 The executable used was the operator-local venv's `notebooklm.exe`; it reported `0.8.6 (956400aa)`.
 
 ```powershell
+$env:NOTEBOOKLM_HOME = Join-Path $env:LOCALAPPDATA 'NotebookYt\operator\notebooklm-cli-profile'
 notebooklm --version
-notebooklm profile list --json
-notebooklm auth inspect --browser edge --json
-notebooklm auth check --test --json
-notebooklm usage --json
-notebooklm list --json
+notebooklm profile list
+notebooklm -p operator auth check --test --json
+notebooklm -p operator usage --json
+notebooklm -p operator list --json
 ```
 
-Observed results: no authenticated CLI profile was present in the isolated profile directory. `auth inspect` could not read Edge cookies because the browser database was locked. `auth check`, `usage`, and `list` returned `AUTH_REQUIRED`. The official `notebooklm login --profile operator --browser chromium` flow was then opened for five minutes, but the CLI did not detect a completed Google sign-in and exited with `Login not detected within 5 minutes`. Therefore the account identity, the existing notebook's remote IDs and sources, the current account's actual usage, and a quota reset time remain unverified through the CLI. This is evidence of an unavailable local CLI session, not evidence that the plan quota is exhausted or that Google AI Ultra is required.
+Observed results on 2026-10-31: the pinned executable reported `0.8.6 (956400aa)`. With the isolated `NOTEBOOKLM_HOME` and explicit `operator` profile, `profile list` showed that profile as unauthenticated; `auth check --test --json` reported a missing `profiles/operator/storage_state.json`; `usage` and `list` returned `AUTH_REQUIRED`. The earlier official browser sign-in attempt timed out after five minutes without detecting a completed login. Therefore the Google identity, existing notebook/source IDs, effective account usage, and any quota reset remain unverified. This establishes an unavailable local CLI session, not exhausted quota or an Ultra requirement. Never read from the default `~/.notebooklm` profile when diagnosing the operator's isolated profile.
+
+The current public GitHub release is v0.8.6, signed and published on 2026-10-29. The project's own README identifies it as an unofficial client using undocumented Google APIs; isolate upgrades and re-verify each CLI response contract before changing the pin.
 
 Before integration, the existing application used its Enterprise API path for remote notebook operations while the operator's existing generation/download workflow was manually attested. The repository cannot by itself prove why a prior agent stopped at that point. The CLI session failure is the current reproduced provider blocker.
 

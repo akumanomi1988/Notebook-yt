@@ -39,8 +39,32 @@ public sealed class NotebookLmExpertOrchestrator(EditorialDb db, INotebookLmProv
             run.Status = "Failed"; run.LastErrorCode = "SOURCE_NOT_IN_NOTEBOOK"; return;
         }
 
+        var approvedQuery = db.Set<ExpertWorkflowRun>().AsNoTracking()
+            .Where(x => x.ProductionId == run.ProductionId && x.Sequence < run.Sequence && x.Status == "Approved");
+        if (run.WorkflowId is Guid workflowId) approvedQuery = approvedQuery.Where(x => x.WorkflowId == workflowId);
+        var priorApproved = await approvedQuery.OrderBy(x => x.Sequence).Select(x => new
+        {
+            x.ExpertId,
+            x.StageKey,
+            response = x.ReviewedResponse == "" ? x.Response : x.ReviewedResponse,
+            x.ReferencesJson,
+            x.ContextVersion,
+            x.ConversationId
+        }).ToListAsync(cancellationToken);
+        using (var currentContext = JsonDocument.Parse(run.InputContextJson))
+        {
+            var context = currentContext.RootElement.Clone();
+            run.InputContextJson = JsonSerializer.Serialize(new { context, priorApprovedStages = priorApproved });
+        }
         var prompt = ComposePrompt(expert, run);
-        var response = await provider.AskAsync(expert.NotebookId, prompt, sources, cancellationToken);
+        if (prompt.Length > 20_000)
+        {
+            run.Status = "Failed"; run.LastErrorCode = "PROMPT_TOO_LARGE"; job.Status = "Succeeded";
+            return;
+        }
+        var conversationToResume = priorApproved.LastOrDefault(x => x.ExpertId == expert.Id)?.ConversationId;
+        var response = await provider.AskAsync(expert.NotebookId, prompt, sources,
+            string.IsNullOrWhiteSpace(conversationToResume) ? null : conversationToResume, cancellationToken);
         if (!response.Success)
         {
             run.LastErrorCode = response.Code;
@@ -63,7 +87,7 @@ public sealed class NotebookLmExpertOrchestrator(EditorialDb db, INotebookLmProv
     private static string ComposePrompt(NotebookExpert expert, ExpertWorkflowRun run)
     {
         using var context = JsonDocument.Parse(run.InputContextJson);
-        return $"{expert.Instructions}\n\nProducción y contexto previamente aprobado:\n{context.RootElement.GetRawText()}\n\nConsulta de esta etapa:\n{run.Prompt}\n\nResponde usando únicamente las fuentes seleccionadas del notebook. Separa hechos, inferencias y dudas; conserva citas de NotebookLM y no inventes información. Devuelve la respuesta y las referencias en el formato JSON documentado por NotebookLM CLI.";
+        return $"{expert.Instructions}\n\nProducción y contexto previamente aprobado:\n{context.RootElement.GetRawText()}\n\nConsulta de esta etapa:\n{run.Prompt}\n\nTrata esta solicitud como independiente de otras producciones y no reutilices sus conclusiones. Responde usando únicamente las fuentes seleccionadas del notebook y el contexto explícito de esta producción. Separa hechos, inferencias y dudas; conserva citas de NotebookLM y no inventes información. Devuelve la respuesta y las referencias en el formato JSON documentado por NotebookLM CLI.";
     }
 
     private static bool AuthReady(string? json)

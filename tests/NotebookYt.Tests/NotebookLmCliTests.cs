@@ -43,6 +43,18 @@ public sealed class NotebookLmCliTests
     }
 
     [Fact]
+    public async Task ExpertCanResumeItsPersistedConversationWithoutStartingOrDeletingAChat()
+    {
+        var runner = new RecordingRunner(); var provider = new NotebookLmCliProvider(runner);
+        var result = await provider.AskAsync("book_1", "Continue this approved stage", ["source_1"], "conversation_1");
+
+        Assert.True(result.Success);
+        Assert.Contains("--conversation-id", runner.Arguments[0]);
+        Assert.Contains("conversation_1", runner.Arguments[0]);
+        Assert.DoesNotContain("--new", runner.Arguments[0]);
+    }
+
+    [Fact]
     public async Task InvalidLanguageOrCustomStyleWithoutPromptDoesNotCallCli()
     {
         var runner = new RecordingRunner(); var provider = new NotebookLmCliProvider(runner);
@@ -59,6 +71,18 @@ public sealed class NotebookLmCliTests
         Assert.Null(assessment.IsExhausted);
         Assert.Null(assessment.ResetAtUtc);
     }
+
+    [Theory]
+    [InlineData("https://notebooklm.google.com/notebook/notebook_1", "notebook_1", true)]
+    [InlineData("https://notebook.cloud.google.com/global/notebook/notebook_1?project=123", "notebook_1", true)]
+    [InlineData("https://notebooklm.google.com/notebook/notebook_10", "notebook_1", false)]
+    [InlineData("https://notebooklm.google.com/notebook/prefix_notebook_1", "notebook_1", false)]
+    [InlineData("https://notebooklm.google.com/wrong/notebook_1", "notebook_1", false)]
+    [InlineData("https://example.com/notebook/notebook_1", "notebook_1", false)]
+    [InlineData("https://notebooklm.google.com/notebook/notebook_1.evil", "notebook_1", false)]
+    [InlineData("http://notebooklm.google.com/notebook/notebook_1", "notebook_1", false)]
+    public void NotebookBindingRequiresAnExactIdSegmentOnAnOfficialHttpsHost(string url, string id, bool expected) =>
+        Assert.Equal(expected, NotebookLmBindings.MatchesNotebook(url, id));
 
     private sealed class RecordingRunner : INotebookLmCliRunner
     {

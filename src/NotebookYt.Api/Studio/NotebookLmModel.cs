@@ -19,16 +19,18 @@ public static class NotebookLmModel
 
         model.Entity<ExpertWorkflowRun>().HasKey(x => x.Id);
         model.Entity<ExpertWorkflowRun>().Property(x => x.StageKey).HasMaxLength(80);
-        model.Entity<ExpertWorkflowRun>().Property(x => x.Status).HasMaxLength(40);
+        model.Entity<ExpertWorkflowRun>().Property(x => x.Status).HasMaxLength(40).IsConcurrencyToken();
         model.Entity<ExpertWorkflowRun>().Property(x => x.IdempotencyKey).HasMaxLength(180);
         model.Entity<ExpertWorkflowRun>().Property(x => x.RequestHash).HasMaxLength(64);
+        model.Entity<ExpertWorkflowRun>().Property(x => x.WorkflowRequestHash).HasMaxLength(64);
         model.Entity<ExpertWorkflowRun>().Property(x => x.LastErrorCode).HasMaxLength(80);
         model.Entity<ExpertWorkflowRun>().HasIndex(x => x.IdempotencyKey).IsUnique();
+        model.Entity<ExpertWorkflowRun>().HasIndex(x => new { x.WorkflowId, x.Sequence });
         model.Entity<ExpertWorkflowRun>().HasIndex(x => new { x.ProductionId, x.Sequence }).IsUnique().HasFilter("\"Status\" <> 'Rejected'");
         model.Entity<ExpertWorkflowRun>().HasOne<Production>().WithMany().HasForeignKey(x => x.ProductionId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<ExpertWorkflowRun>().HasOne<NotebookExpert>().WithMany().HasForeignKey(x => x.ExpertId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<ExpertWorkflowRun>().ToTable(t => t.HasCheckConstraint("CK_ExpertRun_Status",
-            "\"Status\" IN ('Pending','Running','AwaitingReview','Approved','Rejected','OutcomeUnknown','Failed')"));
+            "\"Status\" IN ('Pending','WaitingForApproval','Running','AwaitingReview','Approved','Rejected','Blocked','OutcomeUnknown','Failed')"));
 
         model.Entity<NotebookLmOperation>().HasKey(x => x.Id);
         model.Entity<NotebookLmOperation>().Property(x => x.Kind).HasMaxLength(60);

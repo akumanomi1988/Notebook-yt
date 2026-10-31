@@ -30,7 +30,7 @@ public interface INotebookLmProvider
     Task<NotebookLmCliResult> ListSourcesAsync(string notebookId, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> AddSourceAsync(string notebookId, string url, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> ListArtifactsAsync(string notebookId, string type = "all", CancellationToken cancellationToken = default);
-    Task<NotebookLmCliResult> AskAsync(string notebookId, string prompt, IReadOnlyList<string> sourceIds, CancellationToken cancellationToken = default);
+    Task<NotebookLmCliResult> AskAsync(string notebookId, string prompt, IReadOnlyList<string> sourceIds, string? conversationId = null, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> StartResearchAsync(string notebookId, string query, string mode, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> ResearchStatusAsync(string notebookId, string? taskId, CancellationToken cancellationToken = default);
     Task<NotebookLmCliResult> GenerateVideoAsync(string notebookId, string prompt, string language, string style,
@@ -228,13 +228,15 @@ public sealed class NotebookLmCliProvider(INotebookLmCliRunner runner) : INotebo
         if (!allowed.Contains(type)) return Task.FromResult(new NotebookLmCliResult(false, "INVALID_ARTIFACT_TYPE", null, null));
         return Json(["artifact", "list", "--notebook", Id(notebookId), "--type", type.ToLowerInvariant(), "--json"], ct: cancellationToken);
     }
-    public Task<NotebookLmCliResult> AskAsync(string notebookId, string prompt, IReadOnlyList<string> sourceIds, CancellationToken cancellationToken = default)
+    public Task<NotebookLmCliResult> AskAsync(string notebookId, string prompt, IReadOnlyList<string> sourceIds, string? conversationId = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 20_000) return Task.FromResult(new NotebookLmCliResult(false, "INVALID_PROMPT", null, null));
+        if (conversationId is not null && !SafeId.IsMatch(conversationId)) return Task.FromResult(new NotebookLmCliResult(false, "INVALID_CONVERSATION_ID", null, null));
         // notebooklm-py documents --new as deleting the notebook's current
         // server-side conversation and all its turns. Preserve operator chat
         // history and continue the notebook's existing conversation instead.
         var args = new List<string> { "ask", "--prompt-file", "-", "--notebook", Id(notebookId), "--json" };
+        if (conversationId is not null) { args.Add("--conversation-id"); args.Add(conversationId); }
         foreach (var sourceId in sourceIds) { args.Add("--source"); args.Add(Id(sourceId)); }
         return Json(args, prompt, mutating: true, ct: cancellationToken);
     }

@@ -25,6 +25,8 @@ public sealed class ExpertWorkflowRun
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ProductionId { get; set; }
+    public Guid? WorkflowId { get; set; }
+    public string WorkflowRequestHash { get; set; } = "";
     public Guid ExpertId { get; set; }
     public string StageKey { get; set; } = "";
     public int Sequence { get; set; }

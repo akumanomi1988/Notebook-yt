@@ -122,6 +122,53 @@ public static class NotebookLmEndpoints
             StudioRules.Event(db, productionId, "NotebookLmExpertStageQueued", $"{run.Id}; {expert.Specialization}; {run.StageKey}");
             await db.SaveChangesAsync(ct); return Results.Accepted($"/api/studio/productions/{productionId}/expert-runs", run);
         });
+        app.MapPost("/api/studio/productions/{productionId:guid}/expert-workflows", async (Guid productionId, ExpertWorkflowInput input,
+            HttpRequest request, EditorialDb db, CancellationToken ct) =>
+        {
+            var production = await db.Productions.FindAsync([productionId], ct) ?? throw new StudioException(404, "Producción inexistente.");
+            if (production.Status == ProductionStatus.Cancelled) throw new StudioException(409, "Una producción cancelada no admite operaciones externas.");
+            if (input.Steps is null || input.Steps.Count is < 1 or > 12) throw new StudioException(400, "El flujo debe contener entre 1 y 12 etapas.");
+            var key = request.Headers["Idempotency-Key"].ToString();
+            if (string.IsNullOrWhiteSpace(key) || key.Length > 128) throw new StudioException(400, "Se requiere una cabecera Idempotency-Key válida.");
+            var workflowId = WorkflowGuid(productionId, key);
+            var hash = Hash(JsonSerializer.Serialize(input));
+            var existing = await db.Set<ExpertWorkflowRun>().Where(x => x.WorkflowId == workflowId).OrderBy(x => x.Sequence).ToListAsync(ct);
+            if (existing.Count > 0)
+            {
+                if (existing.Count != input.Steps.Count || existing.Any(x => x.WorkflowRequestHash != hash))
+                    throw new StudioException(409, "La clave idempotente de este flujo ya se utilizó con otros datos.");
+                return Results.Ok(existing);
+            }
+            var nextSequence = (await db.Set<ExpertWorkflowRun>().Where(x => x.ProductionId == productionId).MaxAsync(x => (int?)x.Sequence, ct) ?? 0) + 1;
+            var runs = new List<ExpertWorkflowRun>(input.Steps.Count);
+            for (var index = 0; index < input.Steps.Count; index++)
+            {
+                var step = input.Steps[index];
+                if (step.ExpertId == Guid.Empty || !Stages.Contains(step.StageKey) || string.IsNullOrWhiteSpace(step.Prompt) || step.Prompt.Length > 12000 ||
+                    step.SourceIds is null || step.SourceIds.Count == 0 || step.SourceIds.Any(x => !SafeId.IsMatch(x)))
+                    throw new StudioException(400, $"La etapa {index + 1} tiene campos incompletos o no válidos.");
+                var expert = await db.Set<NotebookExpert>().FindAsync([step.ExpertId], ct) ?? throw new StudioException(404, $"No existe el experto de la etapa {index + 1}.");
+                var stages = JsonSerializer.Deserialize<string[]>(expert.StageKeysJson) ?? [];
+                if (!expert.Enabled || !stages.Contains(step.StageKey, StringComparer.Ordinal))
+                    throw new StudioException(409, $"El experto de la etapa {index + 1} está desactivado o no admite esa etapa.");
+                runs.Add(new ExpertWorkflowRun
+                {
+                    ProductionId = productionId, WorkflowId = workflowId, WorkflowRequestHash = hash,
+                    ExpertId = expert.Id, StageKey = step.StageKey, Sequence = nextSequence + index,
+                    IdempotencyKey = $"{workflowId:N}:{index + 1}", RequestHash = Hash(JsonSerializer.Serialize(step)),
+                    Prompt = step.Prompt.Trim(), SourceIdsJson = JsonSerializer.Serialize(step.SourceIds.Distinct(StringComparer.Ordinal).ToArray()),
+                    InputContextJson = JsonSerializer.Serialize(new { productionId, production.Topic, workflowId, step = index + 1, totalSteps = input.Steps.Count }),
+                    Status = index == 0 ? "Pending" : "WaitingForApproval", RequestedAtUtc = DateTime.UtcNow
+                });
+            }
+            if (await db.Set<ExpertWorkflowRun>().AnyAsync(x => x.ProductionId == productionId && runs.Select(r => r.Sequence).Contains(x.Sequence) && x.Status != "Rejected", ct))
+                throw new StudioException(409, "Una etapa ya ocupa una de las posiciones solicitadas.");
+            db.AddRange(runs);
+            await StudioRules.Enqueue(db, "RunNotebookLmExpertStage", productionId, runs[0].Id, $"expert-workflow:{workflowId}:{runs[0].Sequence}");
+            StudioRules.Event(db, productionId, "NotebookLmExpertWorkflowQueued", $"{workflowId}; {runs.Count} etapas");
+            await db.SaveChangesAsync(ct);
+            return Results.Accepted($"/api/studio/productions/{productionId}/expert-runs", runs);
+        });
         app.MapPost("/api/studio/productions/{productionId:guid}/expert-runs/{runId:guid}/review", async (Guid productionId, Guid runId,
             ExpertReviewInput input, EditorialDb db, CancellationToken ct) =>
         {
@@ -134,6 +181,24 @@ public static class NotebookLmEndpoints
             run.ReviewedResponse = string.IsNullOrWhiteSpace(input.CorrectedResponse) ? run.Response : input.CorrectedResponse.Trim();
             run.Status = input.Approved ? "Approved" : "Rejected"; run.ApprovedAtUtc = input.Approved ? DateTime.UtcNow : null;
             StudioRules.Event(db, productionId, input.Approved ? "NotebookLmExpertResultApproved" : "NotebookLmExpertResultRejected", run.Id.ToString());
+            if (run.WorkflowId is Guid workflowId)
+            {
+                var following = await db.Set<ExpertWorkflowRun>().Where(x => x.WorkflowId == workflowId && x.Sequence > run.Sequence)
+                    .OrderBy(x => x.Sequence).ToListAsync(ct);
+                if (!input.Approved)
+                {
+                    foreach (var pending in following.Where(x => x.Status == "WaitingForApproval")) { pending.Status = "Blocked"; pending.LastErrorCode = "PRIOR_STAGE_REJECTED"; }
+                }
+                else
+                {
+                    var next = following.FirstOrDefault(x => x.Status == "WaitingForApproval");
+                    if (next is not null)
+                    {
+                        next.Status = "Pending"; next.LastErrorCode = "";
+                        await StudioRules.Enqueue(db, "RunNotebookLmExpertStage", productionId, next.Id, $"expert-workflow:{workflowId}:{next.Sequence}");
+                    }
+                }
+            }
             await db.SaveChangesAsync(ct); return Results.Ok(run);
         });
     }
@@ -177,8 +242,7 @@ public static class NotebookLmEndpoints
     private static string ValidateId(string value) => SafeId.IsMatch(value) ? value : throw new StudioException(400, "Identificador de NotebookLM no válido.");
     private static string NotebookUrl(string id, string? supplied)
     {
-        if (Uri.TryCreate(supplied, UriKind.Absolute, out var uri) && uri.Scheme == "https" &&
-            uri.Host is "notebook.google.com" or "notebooklm.google.com" && uri.AbsolutePath.Contains(id, StringComparison.Ordinal) && uri.UserInfo.Length == 0) return uri.ToString();
+        if (NotebookLmBindings.MatchesNotebook(supplied, id)) return supplied!;
         throw new StudioException(400, "Proporciona la URL oficial real del cuaderno; no se generarán enlaces a partir del identificador.");
     }
     private static void ValidateExpert(ExpertInput input) => ValidateExpert((ExpertUpdate)input);
@@ -189,6 +253,7 @@ public static class NotebookLmEndpoints
             input.StageKeys.Any(x => !Stages.Contains(x))) throw new StudioException(400, "Los datos del experto no cumplen los límites o contienen etapas no admitidas.");
     }
     private static string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    private static Guid WorkflowGuid(Guid productionId, string key) => new(SHA256.HashData(Encoding.UTF8.GetBytes($"{productionId:N}:{key}"))[..16]);
 
     private static readonly object[] ExpertTemplates =
     [
@@ -207,4 +272,6 @@ public record ExpertInput(string Name, string Specialization, string Description
 public record ExpertUpdate(string Name, string Specialization, string Description, string Instructions,
     List<Guid> NicheIds, List<string> StageKeys, bool Enabled, int Version);
 public sealed record ExpertRunInput(Guid ExpertId, string StageKey, int Sequence, string Prompt, List<string> SourceIds);
+public sealed record ExpertWorkflowInput(List<ExpertWorkflowStepInput> Steps);
+public sealed record ExpertWorkflowStepInput(Guid ExpertId, string StageKey, string Prompt, List<string> SourceIds);
 public sealed record ExpertReviewInput(bool Approved, string Evidence, string? CorrectedResponse);
