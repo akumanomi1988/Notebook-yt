@@ -1,4 +1,4 @@
-import { expect, test } from './authenticated';
+﻿import { expect, test } from './local';
 
 test('operator completes the Phase 1 workflow against the actual API', async ({ page }) => {
   const topic = `E2E ${Date.now()}`;

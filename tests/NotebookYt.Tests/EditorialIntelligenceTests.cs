@@ -151,7 +151,7 @@ public class EditorialWorkflowTests(PostgresFixture fixture) : IClassFixture<Pos
         await EditorialTestSupport.Prepare(Client, id);
         var current = await Client.GetFromJsonAsync<JsonElement>($"/api/studio/productions/{id}"); Assert.Equal(2, current.GetProperty("packages").GetArrayLength());
         Assert.Contains(current.GetProperty("packages").EnumerateArray(), x => x.GetProperty("sha256").GetString() == oldPackage.GetProperty("packages")[0].GetProperty("sha256").GetString());
-        using var restarted = fixture.CreateFactory(); using var client = restarted.CreateClient(); var restored = await client.GetFromJsonAsync<EditorialPreview>(path);
+        using var restarted = fixture.CreateFactory(); using var client = await restarted.CreateLocalClientAsync(); var restored = await client.GetFromJsonAsync<EditorialPreview>(path);
         Assert.True(restored!.Frozen); Assert.Equal("Episodio", restored.Effective["tone"]);
         Assert.Contains("paquete", string.Join(' ', await EditorialWorkflow.ReviewFailures(Context(), id, null)), StringComparison.OrdinalIgnoreCase);
     }
@@ -188,7 +188,7 @@ public class EditorialWorkflowTests(PostgresFixture fixture) : IClassFixture<Pos
         var (id, _, _) = await Create(); var p = await EditorialTestSupport.Prepare(Client, id);
         var definition = EditorialIntelligence.Presets[1] with { Id = "CUSTOM_MECHANISM", Name = "Mecanismo contrastado", Structure = "Pregunta → modelo → ejemplo → límites", RecommendationCriteria = "" };
         await EditorialTestSupport.Read<JsonElement>(await Client.PutAsJsonAsync("/api/studio/editorial/archetypes/CUSTOM_MECHANISM", new NarrativeWrite(0, definition)));
-        using var host = fixture.CreateFactory(); using var client = host.CreateClient();
+        using var host = fixture.CreateFactory(); using var client = await host.CreateLocalClientAsync();
         var catalog = await client.GetFromJsonAsync<JsonElement>("/api/studio/editorial/catalog");
         Assert.Contains(catalog.GetProperty("archetypes").EnumerateArray(), x => x.GetProperty("id").GetString() == "CUSTOM_MECHANISM");
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PutAsJsonAsync("/api/studio/editorial/archetypes/CUSTOM_MECHANISM", new NarrativeWrite(0, definition))).StatusCode);

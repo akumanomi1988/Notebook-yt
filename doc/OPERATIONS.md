@@ -4,31 +4,26 @@
 
 Seguir README. Conservar juntos PostgreSQL, `Storage__Root` y `Security__KeyDirectory`. Los secretos deben permanecer en variables privadas o archivos fuera del repositorio. No guardar conexiones o contraseñas en documentos de pruebas ni en capturas.
 
-La autenticación está activada por defecto. Para establecer el hash del operador en una sesión PowerShell:
+Notebook-yt no tiene autenticación propia ni depende de una contraseña de operador. La API y PostgreSQL deben escuchar exclusivamente en `127.0.0.1`. No habilitar CORS general: el servidor valida `Origin` y exige un token antifalsificación para cada escritura de API. Esta configuración es solo para uso en el equipo; cualquier despliegue remoto requiere una decisión de acceso independiente.
 
-```powershell
-$env:Security__PasswordHash = & .\scripts\New-OperatorPasswordHash.ps1
-```
-
-Persistir después ese valor mediante un mecanismo privado del sistema, sin imprimirlo en informes. El script exige una contraseña de al menos 12 caracteres y usa PBKDF2 con sal aleatoria y 600.000 iteraciones. No existe un usuario ni contraseña por defecto. La desactivación de autenticación solo se usó contra bases locales de pruebas.
-
-Windows protege las claves con DPAPI del usuario. Linux exige conservar el volumen de claves con permisos exclusivos; su directorio se limita a 0700. Proteger también el dispositivo o volumen de almacenamiento. Perder las claves puede impedir descifrar credenciales o restaurar sesiones.
+Windows protege las claves de Data Protection con DPAPI del usuario. Linux exige conservar el volumen de claves con permisos exclusivos; su directorio se limita a 0700. Estas claves protegen datos de integraciones y no representan una sesión del operador. Proteger también el dispositivo o volumen de almacenamiento.
 
 ## Docker Compose
 
+El backend ahora fija su socket en `127.0.0.1` y rechaza cualquier otra dirección. El Compose actual no ha sido adaptado ni validado para ese contrato de loopback dentro del contenedor; usar el entorno nativo descrito en README. No exponer un contenedor mediante cambios a `0.0.0.0`.
+
 Se proporciona Dockerfile multietapa y `compose.yaml`. El contenedor incluye el frontend compilado y FFmpeg; el trabajador forma parte del backend. Los puertos del host están limitados a 127.0.0.1. No exponerlos públicamente.
 
-Antes de arrancar, crear tres archivos privados fuera del repositorio y configurar sus rutas:
+Antes de arrancar, crear dos archivos privados fuera del repositorio y configurar sus rutas:
 
 - `POSTGRES_PASSWORD_FILE`: contraseña local del usuario PostgreSQL.
 - `EDITORIAL_CONNECTION_FILE`: conexión del contenedor, usando el host de servicio `postgres`, puerto 5432, base/usuario `notebookyt` y la contraseña anterior.
-- `OPERATOR_PASSWORD_HASH_FILE`: hash del operador obtenido con el script.
 
 ```powershell
 docker compose up --build -d
 ```
 
-El servicio `migrate` aplica migraciones y termina; `app` depende de que complete correctamente. El proceso del contenedor usa el usuario 1654. Los datos PostgreSQL, medios y claves tienen volúmenes separados. Abrir `http://127.0.0.1:5080` para la versión empaquetada. La autenticación permanece activada.
+El servicio `migrate` aplica migraciones y termina; `app` depende de que complete correctamente. El proceso del contenedor usa el usuario 1654. Los datos PostgreSQL, medios y claves tienen volúmenes separados. Abrir `http://127.0.0.1:5080` para la versión empaquetada. El puerto del host está ligado solo a loopback; las escrituras mantienen validación de origen y CSRF.
 
 **La ejecución Docker no se verificó en este equipo porque Docker no está disponible.** El YAML se analizó correctamente; esto no demuestra que la imagen o sus volúmenes estén probados. No usar `docker compose down -v` sobre datos que deban conservarse.
 
@@ -92,11 +87,11 @@ Los scripts requieren PowerShell, PostgreSQL local y el mismo usuario/máquina c
 
 El backup incluye dump en formato custom, medios, claves, SHA256 y descriptores de permisos Windows. Su directorio queda restringido al usuario que lo crea. El manifiesto guarda **nombres** de configuración, sin sus valores. Conservar la configuración privada por separado en un almacén seguro. Un SHA256 permite detectar corrupción; no autentica un backup frente a alguien que pueda modificar también el manifiesto. Guardar las copias fuera del equipo con protección adecuada sigue siendo una tarea del operador.
 
-Configurar el entorno restaurado con `ConnectionStrings__Editorial` apuntando a la **base nueva**, `Storage__Root` y `Security__KeyDirectory` apuntando a los directorios restaurados. Reponer privadamente el hash del operador y la configuración OAuth. Arrancar primero aislado, comprobar sesión, semana, producciones, tareas, archivos y almacenamiento. No conectar dos trabajadores a la misma copia ni realizar publicaciones durante el ensayo. No se ha verificado recuperación en otra máquina, Linux ni volúmenes Docker.
+Configurar el entorno restaurado con `ConnectionStrings__Editorial` apuntando a la **base nueva**, `Storage__Root` y `Security__KeyDirectory` apuntando a los directorios restaurados. Reponer privadamente la configuración OAuth si se necesita y conservar la identidad Windows/máquina cuando se use DPAPI. Arrancar primero aislado, comprobar el endpoint CSRF, semana, producciones, tareas, archivos y almacenamiento. No conectar dos trabajadores a la misma copia ni realizar publicaciones durante el ensayo. No se ha verificado recuperación en otra máquina, Linux ni volúmenes Docker.
 
-### Ensayo local desechable con autenticación
+### Ensayo local desechable sin login de operador
 
-`Start-LocalAcceptance.ps1` compila, crea una base aleatoria, aplica migraciones y sirve el frontend empaquetado en `127.0.0.1:5080`. Requiere un PostgreSQL de pruebas ya iniciado; está diseñado para la instancia aislada local con usuario `postgres`. Usa una contraseña **pública y exclusiva de pruebas**; nunca usar ese perfil para datos operativos.
+`Start-LocalAcceptance.ps1` compila, crea una base aleatoria, aplica migraciones y sirve el frontend empaquetado en loopback. Requiere un PostgreSQL de pruebas ya iniciado; está diseñado para la instancia aislada local con usuario `postgres`. Nunca usar esa base para datos operativos.
 
 ```powershell
 .\scripts\Start-LocalAcceptance.ps1 -PgBin $env:TEST_PG_BIN -FfmpegBin (Split-Path $env:TEST_FFMPEG) -Dotnet dotnet
@@ -109,11 +104,11 @@ python scripts/Test-LocalPersistence.py --instance '<acceptance-directory>/insta
   --pg-bin "$env:TEST_PG_BIN" --pg-data '<isolated-postgres-data>' --ffmpeg-bin '<ffmpeg-bin>' --isolated-postgres
 ```
 
-El ensayo compara respuestas autenticadas, historias y hashes antes/después de reiniciar API y PostgreSQL, restaura en otra base/directorios y arranca esa copia. Solo usa medios técnicos de prueba. Conserva los datos para inspección; detener después el PID registrado en `instance.json` y la instancia PostgreSQL de pruebas. No elimina bases ni volúmenes existentes. Las E2E requieren una base de ensayo limpia al iniciar el recorrido y realizan el login real sin desactivar autenticación, CSRF ni el límite de intentos.
+El ensayo compara respuestas, historias y hashes antes/después de reiniciar API y PostgreSQL, restaura en otra base/directorios y arranca esa copia. Solo usa medios técnicos de prueba. Conserva los datos para inspección; detener después el PID registrado en `instance.json` y la instancia PostgreSQL de pruebas. No elimina bases ni volúmenes existentes. Las E2E requieren una base de ensayo limpia y comprueban CSRF y rechazo de orígenes ajenos sin login.
 
 ## Diagnóstico
 
-- 401: iniciar sesión; 400 por CSRF: recargar para renovar el formulario.
+- 400 por CSRF: recargar la aplicación para renovar el token; 403 por origen: abrir desde `127.0.0.1` o el frontend local permitido.
 - 409: revisar estado, tarea anterior, paquete congelado, origen no declarado o aprobación pendiente.
 - `PendingInspection`: comprobar el trabajador y las rutas de FFmpeg/FFprobe.
 - `Rejected`: consultar error de validación; el archivo no puede ser canónico.

@@ -10,11 +10,9 @@ Requisitos: .NET 10 SDK, PostgreSQL 17+, Node 22.12+, npm, FFmpeg y FFprobe. Los
 
 1. Crear una base PostgreSQL local dedicada y un usuario con permisos sobre su esquema. Usar autenticación apropiada y limitar PostgreSQL a localhost.
 2. Configurar privadamente `ConnectionStrings__Editorial` en la sesión. No versionar contraseñas ni conexiones con secretos.
-3. Preparar la contraseña del operador y arrancar:
+3. Restaurar dependencias y arrancar en loopback:
 
 ```powershell
-# Desde la raíz. El script solicita la contraseña y la asignación evita imprimir el hash.
-$env:Security__PasswordHash = & .\scripts\New-OperatorPasswordHash.ps1
 dotnet tool restore
 dotnet restore
 dotnet ef database update --project src/NotebookYt.Api
@@ -30,7 +28,7 @@ npm ci
 npm run dev
 ```
 
-Abrir `http://127.0.0.1:5173`. La API escucha en `127.0.0.1:5080`. La autenticación está activada por defecto. La clave de sesión y los tokens Google se protegen con ASP.NET Data Protection; conservar su directorio de claves entre reinicios.
+Abrir `http://127.0.0.1:5173`. La API escucha en `127.0.0.1:5080`. Notebook-yt no tiene login propio; la aplicación permanece enlazada a loopback y exige token antifalsificación en las escrituras. La autenticación OAuth de Google se mantiene separada. Conservar el directorio de claves de Data Protection entre reinicios para los datos protegidos de Google.
 
 Guardar primero el canal en Semana editorial. En Centro de producción, completar Ajustes, aprobar un tema, crear su producción y preparar las fuentes. El trabajador durable se inicia con el backend y funciona aunque el navegador esté cerrado. No hay un trabajador que simule la generación de vídeo.
 
@@ -48,24 +46,22 @@ La dirección editorial por episodio, herencia de canal y nicho, arquetipos edit
 8. Declarar procedencia y autorización del original; completar las tareas, seleccionar el vídeo canónico, extraer o subir una miniatura y revisar calidad y metadatos.
 9. Conectar YouTube y aprobar expresamente la subida y su visibilidad/programación. La subida inicial es privada y la publicación se confirma mediante Google.
 
-No hay llamadas privadas, extracción de cookies, scraping autenticado ni otros generadores audiovisuales. No se automatizan la generación ni la descarga de Video Overview sin una API pública soportada y verificada. [Matriz de capacidades](doc/NOTEBOOKLM_CAPABILITIES.md).
+La generación personal de NotebookLM sigue sujeta a las capacidades verificadas de la cuenta y a la autenticación Google. No se automatiza la generación ni la descarga de Video Overview desde la aplicación cuando la cuenta solo las ofrece en la interfaz oficial. No se usan sesiones del navegador para autenticar la aplicación ni se introducen otros generadores audiovisuales. [Matriz de capacidades](doc/NOTEBOOKLM_CAPABILITIES.md).
 
 ## Configuración
 
 | Variable | Función |
 |---|---|
 | `ConnectionStrings__Editorial` | Conexión PostgreSQL privada |
-| `Security__PasswordHash` | Hash PBKDF2 del operador |
 | `Security__KeyDirectory` | Claves persistentes de Data Protection |
 | `Storage__Root` | Almacén de archivos; por defecto LocalApplicationData/NotebookYt/storage |
 | `Media__ffmpegPath`, `Media__ffprobePath` | Ejecutables de inspección y miniaturas |
 | `Worker__Enabled` | `true` por defecto; desactivar solo en pruebas o mantenimiento |
-| `Security__RequireAuthentication` | `true` por defecto; `false` únicamente en un entorno local de pruebas aislado |
 | `Google__ClientId`, `Google__ClientSecret` | Cliente OAuth privado configurado en el servidor |
 | `Google__RedirectUri` | Por defecto `http://127.0.0.1:5173/api/studio/google/callback` |
 | `NotebookEnterprise__ProjectNumber` | Proyecto numérico autorizado |
 | `NotebookEnterprise__Region` | `global`, `us` o `eu` |
-| `Hosting__Urls` | Por defecto loopback; en contenedor se usa su red interna con puerto del host limitado a loopback |
+| `Hosting__Urls` | Una sola URL HTTP con host `127.0.0.1`; cualquier otra dirección se rechaza al iniciar |
 
 El archivo `appsettings.Development.json` mantiene el logging de desarrollo separado del común. No contiene secretos. El endpoint `/health` comprueba el proceso; consultar el canal o la semana comprueba la conexión efectiva a PostgreSQL.
 
@@ -91,7 +87,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-E2E requiere la instancia autenticada exclusiva de pruebas de `Start-LocalAcceptance.ps1`, con `Security__RequireAuthentication=true`. Usar `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5080` para el frontend empaquetado; el valor predeterminado `5173` permite probar Vite contra la misma API. La suite inicia sesión por la interfaz y conserva autenticación, CSRF y límites de intentos. Modifica canal y nichos y crea datos de prueba; no usar datos de trabajo. Consulta el procedimiento en [Operaciones](doc/OPERATIONS.md).
+E2E requiere la instancia aislada de pruebas de `Start-LocalAcceptance.ps1`. Usar `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5080` para el frontend empaquetado; el valor predeterminado `5173` permite probar Vite contra la misma API. La suite no inicia sesión; obtiene un token CSRF y verifica que las escrituras sin token y desde otros orígenes se rechazan. Modifica canal y nichos y crea datos de prueba; no usar datos de trabajo. Consulta el procedimiento en [Operaciones](doc/OPERATIONS.md).
 
 Los archivos sintéticos se usan exclusivamente como fixtures técnicos en pruebas. Nunca acreditan procedencia real de NotebookLM ni aceptación externa. Los contratos de Google se prueban mediante HTTP controlado; no se realizan subidas reales en la suite.
 

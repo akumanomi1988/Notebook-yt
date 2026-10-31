@@ -1,5 +1,4 @@
 using System.Net;
-using System.Security.Cryptography;
 using NotebookYt.Api.Studio;
 
 namespace NotebookYt.Tests;
@@ -37,14 +36,6 @@ public class StudioRulesTests
         Assert.Throws<StudioException>(() => YouTubePublishing.ConfirmedBytes(response));
         Assert.True(YouTubePublishing.IsUploadSession("https://www.googleapis.com/upload/youtube/v3/videos?upload_id=test"));
         Assert.False(YouTubePublishing.IsUploadSession("https://www.googleapis.com.evil.test/upload/youtube/v3/videos"));
-    }
-    [Fact]
-    public void PasswordVerificationUsesSaltedHash()
-    {
-        var salt = RandomNumberGenerator.GetBytes(16); const string password = "test-fixture-password-only";
-        var digest = Rfc2898DeriveBytes.Pbkdf2(password, salt, 100000, HashAlgorithmName.SHA256, 32);
-        var encoded = $"100000:{Convert.ToBase64String(salt)}:{Convert.ToBase64String(digest)}";
-        Assert.True(OperatorSecurity.VerifyPassword(password, encoded)); Assert.False(OperatorSecurity.VerifyPassword("wrong", encoded));
     }
 
     [Theory]

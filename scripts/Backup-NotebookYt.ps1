@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory=$true)][switch]$ApplicationStopped,
     [string]$PgBin = '',
     [string]$Server = '127.0.0.1', [int]$Port = 5432, [string]$Username = 'notebookyt',
-    [string[]]$ConfigurationReferences = @('ConnectionStrings__Editorial', 'Security__PasswordHash', 'Google__ClientId', 'Google__ClientSecret')
+    [string[]]$ConfigurationReferences = @('ConnectionStrings__Editorial', 'Google__ClientId', 'Google__ClientSecret')
 )
 $ErrorActionPreference = 'Stop'
 if (-not $ApplicationStopped) { throw 'Stop the application and worker before backup.' }

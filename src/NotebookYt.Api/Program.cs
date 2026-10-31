@@ -4,11 +4,12 @@ using NotebookYt.Api.Studio;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddKeyPerFile("/run/secrets", optional: true);
-builder.WebHost.UseUrls(builder.Configuration["Hosting:Urls"] ?? "http://127.0.0.1:5080");
+var localPort = LocalRequestSecurity.GetLoopbackPort(builder.Configuration);
+builder.WebHost.ConfigureKestrel(options => options.Listen(System.Net.IPAddress.Loopback, localPort));
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(
     new System.Text.Json.Serialization.JsonStringEnumConverter<ProductionStatus>(allowIntegerValues: false)));
 builder.Services.AddProblemDetails();
-builder.AddOperatorSecurity();
+builder.AddLocalRequestSecurity();
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1024L * 1024 * 1024);
 builder.Services.AddSingleton<MediaStorage>();
 builder.Services.AddScoped<GoogleAuthorization>();
@@ -49,7 +50,6 @@ app.Use(async (context, next) =>
     catch (StudioException ex) when (!context.Response.HasStarted)
     { context.Response.Clear(); await Results.Problem(statusCode: ex.Status, detail: ex.Message).ExecuteAsync(context); }
 });
-app.UseOperatorSecurity();
 // Local single-operator API: reject cross-origin browser writes, including simple requests.
 app.Use(async (context, next) =>
 {
@@ -60,6 +60,11 @@ app.Use(async (context, next) =>
         await Results.Problem(statusCode: 403, detail: "Origin is not allowed.").ExecuteAsync(context);
         return;
     }
+    await next();
+});
+app.UseLocalRequestSecurity();
+app.Use(async (context, next) =>
+{
     if (HttpMethods.IsGet(context.Request.Method)) { await next(context); return; }
     var db = context.RequestServices.GetRequiredService<EditorialDb>();
     await using var transaction = await db.Database.BeginTransactionAsync();

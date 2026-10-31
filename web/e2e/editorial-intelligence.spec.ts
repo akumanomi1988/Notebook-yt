@@ -1,8 +1,8 @@
-import { mkdirSync } from 'node:fs';
-import { expect, test } from './authenticated';
+﻿import { mkdirSync } from 'node:fs';
+import { expect, test } from './local';
 import { prepareEditorial } from './editorial-support';
 
-test('editorial direction saves, validates, freezes and resumes through the authenticated UI', async ({ page, request }) => {
+test('editorial direction saves, validates, freezes and resumes in the local UI', async ({ page, request }) => {
   await request.put('/api/channel', { data: { name: 'NewSphere acceptance', timeZone: 'Europe/Madrid' } });
   const week = await (await request.get('/api/week')).json();
   const title = `Editorial direction acceptance ${Date.now()}`;

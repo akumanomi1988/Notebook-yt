@@ -30,7 +30,7 @@ Backend en `src/NotebookYt.Api/Studio/`:
 - `NotebookIntegration`: contratos Enterprise documentados.
 - `YouTubePublishing`: sesión reanudable, miniatura, metadatos, verificación y conciliación.
 
-Frontend: `AuthGate`, cliente HTTP con CSRF, interfaz anterior conservada y `Studio` con Resumen, Calendario, Temas, Producciones, Trabajos, Integraciones y Ajustes. Cada producción ofrece Investigación, NotebookLM, Vídeo y calidad, Publicación e Historial. No hay estadísticas de tendencia inventadas ni un trabajador de generación simulado.
+Frontend: inicialización CSRF sin login propio, cliente HTTP con CSRF, interfaz anterior conservada y `Studio` con Resumen, Calendario, Temas, Producciones, Trabajos, Integraciones y Ajustes. Cada producción ofrece Investigación, NotebookLM, Vídeo y calidad, Publicación e Historial. No hay estadísticas de tendencia inventadas ni un trabajador de generación simulado.
 
 ## 5. Persistencia y contratos
 

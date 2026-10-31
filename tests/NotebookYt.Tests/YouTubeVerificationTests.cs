@@ -30,7 +30,7 @@ public class YouTubeVerificationTests(PostgresFixture fixture) : IClassFixture<P
             } } })));
         }));
         await using var factory = fixture.CreateFactory().WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<IHttpClientFactory>(new ControlledClientFactory(provider))));
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLocalClientAsync();
         await client.PutAsJsonAsync("/api/channel", new { name = "Verification fixture", timeZone = "Europe/Madrid" });
         var week = await client.GetFromJsonAsync<JsonElement>("/api/week");
         var created = await client.PostAsJsonAsync("/api/productions", new { contentNicheId = week[0].GetProperty("id").GetGuid(), topic = "Remote verification", plannedDate = "2027-01-01" });

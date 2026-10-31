@@ -4,6 +4,8 @@ Fecha: 2026-10-30. Rama de entrega: `feat/daily-operator-experience`.
 
 ## Resultado real
 
+**Nota de vigencia (2026-11-01):** Los resultados que siguen describen la ejecución histórica del 2026-10-30. Desde la corrección en curso, Notebook-yt elimina el login de operador por decisión del propietario; Google OAuth/NotebookLM conservan sus autenticaciones externas. La versión instalada en `:5080` aún necesita actualizarse para retirar definitivamente las rutas antiguas.
+
 La aplicación empaquetada está instalada en el perfil persistente del operador y escucha en `http://127.0.0.1:5080`. PostgreSQL operativo sigue separado de las bases de pruebas, en loopback:55434. Se conservan autenticación, directorio multimedia, claves DPAPI/Data Protection y tokens OAuth protegidos. No se han versionado credenciales ni archivos audiovisuales.
 
 Se observó la generación de un Video Overview en NotebookLM, su reproducción y su descarga oficial. El MP4 genuino se importó y se inspeccionó mediante FFprobe y decodificación completa. Tiene audio, 1280×720, 417,285805 segundos y 36.685.105 bytes. Se verificó SHA256 tras reiniciar la aplicación. El origen queda declarado según la operación observada, no probado criptográficamente por Google.

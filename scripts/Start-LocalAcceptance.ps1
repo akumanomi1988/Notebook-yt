@@ -19,16 +19,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Backend publish failed.' }
 Copy-Item (Join-Path $repository 'web\dist') (Join-Path $runtime 'wwwroot') -Recurse
 & (Join-Path $PgBin 'createdb.exe') --host=127.0.0.1 --port=$PostgresPort --username=postgres --no-password $database
 if ($LASTEXITCODE -ne 0) { throw 'Creating isolated acceptance database failed.' }
-# This publicly documented password belongs exclusively to this isolated test instance.
-# Never reuse this profile for operational data or expose it beyond loopback.
-$salt = New-Object byte[] 16
-$rng = [Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($salt); $rng.Dispose()
-$derive = New-Object Security.Cryptography.Rfc2898DeriveBytes('controlled-acceptance-password', $salt, 100000, [Security.Cryptography.HashAlgorithmName]::SHA256)
-$hash = '100000:' + [Convert]::ToBase64String($salt) + ':' + [Convert]::ToBase64String($derive.GetBytes(32)); $derive.Dispose()
 $settings = @{
     ConnectionStrings__Editorial = "Host=127.0.0.1;Port=$PostgresPort;Database=$database;Username=postgres"
     Hosting__Urls = $apiUrl; ASPNETCORE_ENVIRONMENT = 'Production'
-    Security__RequireAuthentication = 'true'; Security__PasswordHash = $hash
     Security__KeyDirectory = (Join-Path $root 'keys'); Storage__Root = (Join-Path $root 'media')
     Media__ffmpegPath = (Join-Path $FfmpegBin 'ffmpeg.exe'); Media__ffprobePath = (Join-Path $FfmpegBin 'ffprobe.exe')
     Worker__Enabled = 'true'
@@ -49,5 +42,5 @@ for ($attempt = 0; $attempt -lt 30; $attempt++) {
 }
 if (-not $ready) { throw "Acceptance startup failed. Inspect $root" }
 @{ database = $database; postgresPort = $PostgresPort; root = $root; processId = $process.Id; url = $apiUrl } | ConvertTo-Json | Set-Content (Join-Path $root 'instance.json') -Encoding UTF8
-Write-Output "Authenticated isolated acceptance instance: $root"
+Write-Output "Isolated loopback acceptance instance: $root"
 Write-Output "Run web tests with PLAYWRIGHT_BASE_URL=$apiUrl. Preserve instance.json for restart and cleanup."

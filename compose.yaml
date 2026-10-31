@@ -21,12 +21,9 @@ services:
       - "127.0.0.1:5080:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      Security__RequireAuthentication: "true"
     secrets:
       - source: editorial_connection
         target: ConnectionStrings__Editorial
-      - source: operator_password_hash
-        target: Security__PasswordHash
     volumes:
       - media_data:/var/lib/notebook-yt/media
       - protection_keys:/var/lib/notebook-yt/keys
@@ -50,8 +47,6 @@ secrets:
     file: ${POSTGRES_PASSWORD_FILE:?Set a private local password file path}
   editorial_connection:
     file: ${EDITORIAL_CONNECTION_FILE:?Set a private local connection string file path}
-  operator_password_hash:
-    file: ${OPERATOR_PASSWORD_HASH_FILE:?Set a private local password hash file path}
 volumes:
   postgres_data:
   media_data:

@@ -35,7 +35,7 @@ def main():
         raise ValueError('Unexpected database identity.')
     cookies = http.cookiejar.CookieJar()
     client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
-    base = 'http://127.0.0.1:5080'
+    base = instance['url']
 
     def request(path, data=None, token=None):
         headers = {'Content-Type': 'application/json'}
@@ -45,9 +45,8 @@ def main():
         with client.open(req, timeout=20) as response:
             return response.read()
 
-    session = json.loads(request('/api/auth/session'))
-    assert session['required'] and session['configured']
-    request('/api/auth/login', {'password': 'controlled-acceptance-password'}, session['csrfToken'])
+    csrf = json.loads(request('/api/security/csrf'))
+    assert csrf['csrfToken']
 
     def snapshot():
         paths = ['/api/week', '/api/productions', '/api/studio/topics', '/api/studio/jobs']
@@ -74,12 +73,8 @@ def main():
         command(['powershell.exe', '-NoProfile', '-Command', f"Stop-Process -Id {int(instance['processId'])} -ErrorAction Stop"])
 
     def start(db, media, keys):
-        salt = secrets.token_bytes(16)
-        import base64
-        password_hash = '100000:' + base64.b64encode(salt).decode() + ':' + base64.b64encode(hashlib.pbkdf2_hmac('sha256', b'controlled-acceptance-password', salt, 100000)).decode()
         env = dict(os.environ, ConnectionStrings__Editorial=f'Host=127.0.0.1;Port={port};Database={db};Username=postgres',
-                   Hosting__Urls=base, ASPNETCORE_ENVIRONMENT='Production', Security__RequireAuthentication='true',
-                   Security__PasswordHash=password_hash, Security__KeyDirectory=str(keys), Storage__Root=str(media),
+                   Hosting__Urls=base, ASPNETCORE_ENVIRONMENT='Production', Security__KeyDirectory=str(keys), Storage__Root=str(media),
                    Media__ffmpegPath=str(args.ffmpeg_bin / 'ffmpeg.exe'), Media__ffprobePath=str(args.ffmpeg_bin / 'ffprobe.exe'), Worker__Enabled='true')
         with (root / 'restart.log').open('ab') as output:
             process = subprocess.Popen([args.dotnet, 'NotebookYt.Api.dll'], cwd=root / 'runtime', env=env,
@@ -111,7 +106,7 @@ def main():
     start(restore_database, media, keys)
     assert snapshot() == before, 'State changed after isolated restore.'
     result = {'apiRestart': 'passed', 'postgresRestart': 'passed', 'isolatedRestore': 'passed',
-              'authenticatedCookieSurvived': True, 'allValidArtifactHashes': 'passed',
+              'unauthenticatedLocalAccess': True, 'allValidArtifactHashes': 'passed',
               'sourceDatabase': database, 'restoredDatabase': restore_database, 'genuineNotebookVideo': False}
     (root / 'persistence-result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(json.dumps(result, indent=2))

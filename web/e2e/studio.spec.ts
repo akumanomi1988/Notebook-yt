@@ -1,5 +1,5 @@
-import { prepareEditorial } from './editorial-support';
-﻿import { expect, test } from './authenticated';
+﻿import { prepareEditorial } from './editorial-support';
+﻿import { expect, test } from './local';
 
 test('studio research and manual notebook workflow persist against the actual API', async ({ page }) => {
   const title = `Evergreen studio ${Date.now()}`;

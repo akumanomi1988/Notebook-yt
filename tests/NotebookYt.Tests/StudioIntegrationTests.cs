@@ -76,7 +76,7 @@ public class StudioIntegrationTests(PostgresFixture fixture) : IClassFixture<Pos
         {
             await using var command = new NpgsqlCommand(sql, connection); var error = await Assert.ThrowsAsync<PostgresException>(async () => await command.ExecuteNonQueryAsync()); Assert.Equal("23514", error.SqlState);
         }
-        await using var restarted = fixture.CreateFactory(); using var restartedClient = restarted.CreateClient();
+        await using var restarted = fixture.CreateFactory(); using var restartedClient = await restarted.CreateLocalClientAsync();
         var persisted = await Body(await restartedClient.GetAsync(path)); Assert.Equal(package.GetProperty("sha256").GetString(), persisted.GetProperty("packages")[0].GetProperty("sha256").GetString());
     }
     [Fact]

@@ -240,30 +240,6 @@ main:focus {
   color:var(--muted);
   white-space:nowrap;
   padding-top:10px}
-.session-bar {
-  height:44px;
-  display:flex;
-  justify-content:flex-end;
-  align-items:center;
-  gap:16px;
-  padding:0 32px;
-  background:#e9ede6;
-  font-size:.78rem;
-  color:#3b5545}
-.session-bar button {
-  min-height:30px;
-  font-size:.75rem;
-  padding:5px 10px;
-  background:transparent;
-  color:#2d503c}
-.session-bar span:before {
-  content:'';
-  display:inline-block;
-  width:6px;
-  height:6px;
-  border-radius:50%;
-  background:var(--green);
-  margin-right:8px}
 .skip-link {
   position:fixed;
   left:244px;
@@ -612,10 +588,6 @@ caption {
   min-height:42px}
 .sidebar nav button[aria-pressed=false] {
   background:#204938}
-.session-bar {
-  padding:0 16px;
-  font-size:.73rem;
-  height:38px}
 main {
   padding:26px 16px 44px}
 .page-header {
@@ -677,16 +649,14 @@ section {
   transition:none!important}
 }
 
-.auth-page {
+.connection-page {
   max-width:540px;
   margin:8vh auto;
   padding:24px}
-.auth-page>p {
+.connection-page>p {
   color:var(--muted);
   margin:12px 0 30px}
-.auth-page section {
-  padding:28px}
-.auth-page>button {
+.connection-page button {
   background:transparent;
   color:var(--green)}
 

@@ -1,5 +1,5 @@
-import { mkdirSync } from 'node:fs';
-import { expect, test } from './authenticated';
+﻿import { mkdirSync } from 'node:fs';
+import { expect, test } from './local';
 
 test('daily workspace navigation, grouped configuration and mobile layout are usable', async ({ page, request }) => {
   const title = `Demostración local: preparar el siguiente vídeo ${Date.now()}`;

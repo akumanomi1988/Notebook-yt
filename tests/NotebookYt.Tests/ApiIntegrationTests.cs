@@ -23,7 +23,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             .UseSetting("Security:KeyDirectory", Path.Combine(StorageRoot, "keys"))
             .UseSetting("Media:ffmpegPath", Environment.GetEnvironmentVariable("TEST_FFMPEG") ?? "ffmpeg")
             .UseSetting("Media:ffprobePath", Environment.GetEnvironmentVariable("TEST_FFPROBE") ?? "ffprobe")
-            .UseSetting("Security:RequireAuthentication", "false").UseSetting("Worker:Enabled", "false").UseEnvironment("Production"));
+            .UseSetting("Worker:Enabled", "false").UseEnvironment("Production"));
 
     public async Task InitializeAsync()
     {
@@ -36,7 +36,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         ConnectionString = new NpgsqlConnectionStringBuilder(admin) { Database = database }.ConnectionString;
         await using var db = new EditorialDb(new DbContextOptionsBuilder<EditorialDb>().UseNpgsql(ConnectionString).Options);
         await db.Database.MigrateAsync();
-        Factory = CreateFactory(); Client = Factory.CreateClient();
+        Factory = CreateFactory(); Client = await Factory.CreateLocalClientAsync();
         var initial = await Client.GetAsync("/api/channel");
         Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
         Assert.Equal("null", await initial.Content.ReadAsStringAsync());
@@ -102,7 +102,7 @@ public class ApiIntegrationTests(PostgresFixture fixture) : IClassFixture<Postgr
         Assert.Equal(HttpStatusCode.OK, (await Client.PostAsJsonAsync(path + "/status", new { status = "Cancelled" })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PutAsJsonAsync(path, new { topic = "Forbidden", plannedDate = "2026-11-03" })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await Client.PutAsJsonAsync(path + "/notebook", notebook)).StatusCode);
-        await using var restarted = fixture.CreateFactory(); using var client = restarted.CreateClient();
+        await using var restarted = fixture.CreateFactory(); using var client = await restarted.CreateLocalClientAsync();
         detail = await Json(await client.GetAsync(path));
         Assert.Equal(3, detail.GetProperty("history").GetArrayLength());
         Assert.Equal("Cancelled", detail.GetProperty("production").GetProperty("status").GetString());
