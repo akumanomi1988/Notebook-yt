@@ -57,8 +57,19 @@ public static class NotebookLmEndpoints
             var notebook = await provider.GetNotebookAsync(input.NotebookId, ct);
             if (!notebook.Success) throw new StudioException(notebook.Code == "AUTH_REQUIRED" ? 409 : 502, "No se pudo verificar el cuaderno de NotebookLM. Consulta el diagnóstico antes de registrar el experto.");
             if (!NotebookMatches(notebook.Json, input.NotebookId)) throw new StudioException(409, "NotebookLM no confirmó el identificador del cuaderno.");
-            if (await db.Set<NotebookExpert>().AnyAsync(x => x.NotebookId == input.NotebookId && x.Specialization == input.Specialization, ct))
-                throw new StudioException(409, "Ese cuaderno ya está asociado a un experto de esa especialidad.");
+            var existing = await db.Set<NotebookExpert>().SingleOrDefaultAsync(
+                x => x.NotebookId == input.NotebookId && x.Specialization == input.Specialization, ct);
+            if (existing is not null)
+            {
+                existing.Name = input.Name.Trim(); existing.Description = input.Description.Trim();
+                existing.NotebookUrl = NotebookUrl(input.NotebookId, input.NotebookUrl);
+                existing.Instructions = input.Instructions.Trim(); existing.NicheIdsJson = JsonSerializer.Serialize(input.NicheIds);
+                existing.StageKeysJson = JsonSerializer.Serialize(input.StageKeys); existing.Enabled = input.Enabled;
+                existing.Version++; existing.LastSyncedAtUtc = DateTime.UtcNow; existing.LastErrorCode = "";
+                existing.ModifiedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(existing);
+            }
             var row = new NotebookExpert
             {
                 Name = input.Name.Trim(), Specialization = input.Specialization.Trim(), Description = input.Description.Trim(),

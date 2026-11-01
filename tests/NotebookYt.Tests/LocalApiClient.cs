@@ -9,6 +9,7 @@ public static class LocalApiClient
     public static async Task<HttpClient> CreateLocalClientAsync(this WebApplicationFactory<Program> factory)
     {
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        client.BaseAddress = new Uri("http://127.0.0.1:5080");
         var csrf = await client.GetFromJsonAsync<JsonElement>("/api/security/csrf");
         var token = csrf.GetProperty("csrfToken").GetString();
         if (string.IsNullOrWhiteSpace(token))
@@ -17,7 +18,7 @@ public static class LocalApiClient
             throw new InvalidOperationException("The local API did not return an antiforgery token.");
         }
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token);
-        client.DefaultRequestHeaders.Add("Origin", "http://localhost");
+        client.DefaultRequestHeaders.Add("Origin", "http://127.0.0.1:5080");
         return client;
     }
 }

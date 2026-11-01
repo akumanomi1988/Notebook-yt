@@ -2,6 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Configuration;
 using NotebookYt.Api;
 using NotebookYt.Api.Studio;
 
@@ -9,6 +14,66 @@ namespace NotebookYt.Tests;
 
 public sealed class NotebookLmWorkflowTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
 {
+    [Fact]
+    public async Task AddSourceReconciliationAllowsNotebookMarkdownSourcesWithoutUrls()
+    {
+        const string notebookId = "notebook_markdown_source_test";
+        var provider = new RegistrationProvider("""{"notebook_id":"notebook_markdown_source_test","sources":[{"id":"guide_1","title":"research.md","type":"markdown","status":"ready"},{"id":"source_1","url":"https://example.org/previous","status":"ready"}]}""");
+        await using var db = CreateDb();
+        var operation = new NotebookLmOperation
+        {
+            Kind = "AddSource", NotebookId = notebookId, IdempotencyKey = "markdown-source-url-missing-" + Guid.NewGuid().ToString("N"),
+            RequestJson = """{"url":"https://example.org/new","affectExpertKnowledge":true}"""
+        };
+        db.Add(operation);
+        await db.SaveChangesAsync();
+
+        var job = new BackgroundJob { Kind = "RunNotebookLmOperation", ResourceId = operation.Id, Status = "Running" };
+        var processor = new NotebookLmOperationProcessor(db, provider, new MediaStorage(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:Root"] = fixture.StorageRoot }).Build()));
+        await processor.Execute(job, CancellationToken.None);
+
+        Assert.Equal(1, provider.SourceAddCount);
+        Assert.Equal("Completed", operation.Status);
+    }
+
+    [Fact]
+    public async Task ExpertRegistrationReconcilesTheSameRealNotebookAndSpecialization()
+    {
+        await using var factory = fixture.CreateFactory().WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<INotebookLmProvider>();
+            services.AddSingleton<INotebookLmProvider>(new RegistrationProvider());
+        }));
+        using var client = await factory.CreateLocalClientAsync();
+        var notebookId = "notebook_registration_test";
+        var input = new
+        {
+            name = "Research expert", specialization = "research", description = "Initial description",
+            notebookId, notebookUrl = $"https://notebooklm.google.com/notebook/{notebookId}",
+            instructions = "Use evidence.", nicheIds = Array.Empty<Guid>(), stageKeys = new[] { "research" }, enabled = true
+        };
+
+        var created = await client.PostAsJsonAsync("/api/studio/notebooklm/experts", input);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var createdBody = await created.Content.ReadFromJsonAsync<JsonElement>();
+
+        var repeated = await client.PostAsJsonAsync("/api/studio/notebooklm/experts", new
+        {
+            input.name, input.specialization, description = "Reconciled description", input.notebookId,
+            input.notebookUrl, input.instructions, input.nicheIds, input.stageKeys, input.enabled
+        });
+        Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
+        var repeatedBody = await repeated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(createdBody.GetProperty("id").GetGuid(), repeatedBody.GetProperty("id").GetGuid());
+        Assert.Equal("Reconciled description", repeatedBody.GetProperty("description").GetString());
+
+        var experts = await client.GetFromJsonAsync<JsonElement[]>("/api/studio/notebooklm/experts");
+        Assert.NotNull(experts);
+        Assert.Single(experts, row => row.GetProperty("notebookId").GetString() == notebookId &&
+            row.GetProperty("specialization").GetString() == "research");
+    }
+
     [Fact]
     public async Task WorkflowRunsAdvanceOnlyAfterApprovalAndRejectBlocksLaterStages()
     {
@@ -115,4 +180,32 @@ public sealed class NotebookLmWorkflowTests(PostgresFixture fixture) : IClassFix
     }
 
     private EditorialDb CreateDb() => new(new DbContextOptionsBuilder<EditorialDb>().UseNpgsql(fixture.ConnectionString).Options);
+
+    private sealed class RegistrationProvider : INotebookLmProvider
+    {
+        private readonly string sourcesJson;
+        public RegistrationProvider(string? sourcesJson = null) => this.sourcesJson = sourcesJson ?? "{}";
+        public int SourceAddCount { get; private set; }
+        public Task<NotebookLmCliResult> GetNotebookAsync(string notebookId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NotebookLmCliResult(true, "OK", JsonSerializer.Serialize(new { id = notebookId }), 0));
+        private static Task<NotebookLmCliResult> Unsupported() => Task.FromResult(new NotebookLmCliResult(false, "UNSUPPORTED_TEST_OPERATION", null, 0));
+        public Task<NotebookLmCliResult> CheckAuthenticationAsync(CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> ListProfilesAsync(CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> GetUsageAsync(CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> ListNotebooksAsync(CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> CreateNotebookAsync(string title, CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> CopyNotebookAsync(string notebookId, string title, CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> ListSourcesAsync(string notebookId, CancellationToken cancellationToken = default) => Task.FromResult(new NotebookLmCliResult(true, "OK", sourcesJson, 0));
+        public Task<NotebookLmCliResult> AddSourceAsync(string notebookId, string url, CancellationToken cancellationToken = default)
+        {
+            SourceAddCount++;
+            return Task.FromResult(new NotebookLmCliResult(true, "OK", JsonSerializer.Serialize(new { id = "new_source", url }), 0));
+        }
+        public Task<NotebookLmCliResult> ListArtifactsAsync(string notebookId, string type = "all", CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> AskAsync(string notebookId, string prompt, IReadOnlyList<string> sourceIds, string? conversationId = null, CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> StartResearchAsync(string notebookId, string query, string mode, CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> ResearchStatusAsync(string notebookId, string? taskId, CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> GenerateVideoAsync(string notebookId, string prompt, string language, string style, string? customStyle, IReadOnlyList<string> sourceIds, CancellationToken cancellationToken = default) => Unsupported();
+        public Task<NotebookLmCliResult> DownloadVideoAsync(string notebookId, string artifactId, string outputPath, CancellationToken cancellationToken = default) => Unsupported();
+    }
 }

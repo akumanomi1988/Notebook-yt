@@ -6,6 +6,13 @@ namespace NotebookYt.Api.Studio;
 
 public static class LocalRequestSecurity
 {
+    public static bool IsAllowedHost(HostString host, int localPort)
+    {
+        return host.Port == localPort &&
+            IPAddress.TryParse(host.Host, out var address) &&
+            IPAddress.Loopback.Equals(address);
+    }
+
     public static int GetLoopbackPort(IConfiguration configuration)
     {
         var value = configuration["Hosting:Urls"] ?? "http://127.0.0.1:5080";

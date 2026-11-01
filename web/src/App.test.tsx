@@ -80,3 +80,10 @@ test('initial loading and network failure allow retry', async () => {
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   expect(screen.getByLabelText('Nombre del canal')).toHaveValue('Test channel');
 });
+
+test('opens NotebookLM experts from the main navigation', async () => {
+  const user = userEvent.setup(); render(<App initialTab="week" />);
+  await screen.findByText('Calendario semanal');
+  await user.click(screen.getByRole('button', { name: 'Expertos NotebookLM' }));
+  expect(await screen.findByRole('heading', { name: 'Expertos NotebookLM', level: 2 })).toBeInTheDocument();
+});

@@ -24,11 +24,14 @@ export function NotebookLmExperts({ productions, busy, run }: { productions: Pro
   const [expertSourceUrls, setExpertSourceUrls] = useState<Record<string, string>>({});
   const [expertSourceConfirmations, setExpertSourceConfirmations] = useState<Record<string, boolean>>({});
   const refresh = useCallback(async () => {
-    const [d, e, t, o] = await Promise.all([
-      apiRequest<Diagnostic>('/studio/notebooklm/diagnostics'), apiRequest<Expert[]>('/studio/notebooklm/experts'),
-      apiRequest<Template[]>('/studio/notebooklm/expert-templates'), apiRequest<Operation[]>('/studio/notebooklm/operations')
-    ]);
-    setDiagnostic(d); setExperts(e); setTemplates(t); setOperations(o); setError('');
+    const tasks = [
+      apiRequest<Expert[]>('/studio/notebooklm/experts').then(setExperts),
+      apiRequest<Template[]>('/studio/notebooklm/expert-templates').then(setTemplates),
+      apiRequest<Operation[]>('/studio/notebooklm/operations').then(setOperations),
+      apiRequest<Diagnostic>('/studio/notebooklm/diagnostics').then(setDiagnostic)
+    ];
+    await Promise.all(tasks);
+    setError('');
   }, []);
   const keyFor = async (body: unknown) => {
     const bytes = new TextEncoder().encode(JSON.stringify(body)); const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -61,7 +64,7 @@ export function NotebookLmExperts({ productions, busy, run }: { productions: Pro
   });
   const loadExpertSources = (expert: Expert) => submit(async () => { const sources = await apiRequest(`/studio/notebooklm/notebooks/${encodeURIComponent(expert.notebookId)}/sources`); setExpertSourceViews(old => ({ ...old, [expert.id]: JSON.stringify(sources, null, 2) })); });
   return <section aria-labelledby="experts-title"><h2 id="experts-title">Expertos NotebookLM</h2>
-    <p>Los expertos son cuadernos reales consultados mediante la CLI comunitaria <code>notebooklm-py</code>. No son respuestas simuladas. Se requiere revisar y aprobar cada respuesta antes de transferirla a otra etapa.</p>
+    <p>Los expertos son cuadernos reales consultados mediante la CLI comunitaria <code>notebooklm-py</code>. No son respuestas simuladas. En modo automático, las respuestas que superan las validaciones se transfieren a la etapa siguiente; en modo supervisado, puedes revisar y aprobar cada respuesta.</p>
     {error && <p role="alert" className="error">{error}</p>}
     <article><h3>Conexión local</h3>{diagnostic ? <><p>CLI fijada: {diagnostic.cliVersion} · {diagnostic.configured ? 'configurada' : 'sin configuración'} · autenticación: {diagnostic.authentication.success ? 'validada' : diagnostic.authentication.code} · uso: {diagnostic.usageState}</p><p>{diagnostic.distribution}. Integración comunitaria no oficial; consulta y generación se ejecutan solo al solicitarlas.</p></> : <p role="status">Consultando diagnóstico…</p>}<button disabled={busy} onClick={() => submit(refresh)}>Actualizar diagnóstico</button></article>
     <h3>Cuadernos vinculados</h3>{experts.map(expert => <article key={expert.id}><h4>{expert.name} · {expert.specialization}</h4><p>{expert.description || 'Sin descripción'} · cuaderno {expert.notebookId} · {expert.enabled ? 'Activo' : 'Desactivado'}</p><p>{expert.instructions}</p><small>Última sincronización: {expert.lastSyncedAtUtc ?? 'Aún no consultado'} {expert.lastErrorCode && `· Error: ${expert.lastErrorCode}`}</small><button disabled={busy || !diagnostic?.providerVerified} onClick={() => loadExpertSources(expert)}>Consultar fuentes reales del experto</button>{expertSourceViews[expert.id] && <details open><summary>Fuentes del cuaderno permanente</summary><pre>{expertSourceViews[expert.id]}</pre></details>}<form onSubmit={event => { event.preventDefault(); queueOperation({ kind: 'add_source', productionId: null, notebookId: expert.notebookId, url: expertSourceUrls[expert.id], affectExpertKnowledge: true }); setExpertSourceUrls(old => ({ ...old, [expert.id]: '' })); setExpertSourceConfirmations(old => ({ ...old, [expert.id]: false })); }}><label>Agregar una fuente permanente al experto<input required type="url" value={expertSourceUrls[expert.id] ?? ''} onChange={e => setExpertSourceUrls(old => ({ ...old, [expert.id]: e.target.value }))} /></label><label className="inline"><input required type="checkbox" checked={expertSourceConfirmations[expert.id] ?? false} onChange={e => setExpertSourceConfirmations(old => ({ ...old, [expert.id]: e.target.checked }))} />Confirmo que esta fuente debe quedar como conocimiento permanente de este experto</label><button disabled={busy || !diagnostic?.providerVerified || !expert.enabled || !expertSourceConfirmations[expert.id]}>Incorporar fuente al experto</button></form></article>)}{!experts.length && <p>No hay expertos vinculados. Las especialidades siguientes son plantillas; no crean cuadernos automáticamente.</p>}

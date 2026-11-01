@@ -32,6 +32,18 @@ public class BackupRestoreTests(PostgresFixture fixture) : IClassFixture<Postgre
         var targetName = "notebook_restore_" + Guid.NewGuid().ToString("N");
         var target = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = targetName };
         var backup = Path.Combine(root, "backup"); var media = Path.Combine(root, "media"); var keys = Path.Combine(root, "keys");
+        var extras = new Dictionary<string, string>
+        {
+            ["expert-library"] = Path.Combine(root, "source", "expert-library"),
+            ["notebooklm-cli-profile"] = Path.Combine(root, "source", "notebooklm-cli-profile"),
+            ["secrets"] = Path.Combine(root, "source", "secrets")
+        };
+        var restoredExtras = extras.Keys.ToDictionary(name => name, name => Path.Combine(root, "additional", name));
+        foreach (var extra in extras)
+        {
+            Directory.CreateDirectory(extra.Value);
+            await File.WriteAllTextAsync(Path.Combine(extra.Value, "marker.txt"), "controlled-backup-test");
+        }
         var repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var protection = fixture.Factory.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector("AcceptanceRestore.v1");
         const string controlledValue = "controlled-test-value-never-a-real-google-token";
@@ -58,8 +70,13 @@ public class BackupRestoreTests(PostgresFixture fixture) : IClassFixture<Postgre
         }
         try
         {
-            Assert.Equal(0, await Script("Backup-NotebookYt.ps1", "-Database", source.Database!, "-MediaDirectory", fixture.StorageRoot, "-KeyDirectory", Path.Combine(fixture.StorageRoot, "keys"), "-Destination", backup, "-ApplicationStopped"));
-            Assert.True(await Script("Restore-NotebookYt.ps1", "-BackupDirectory", backup, "-NewDatabase", targetName, "-MediaDirectory", media, "-KeyDirectory", keys) == 0, lastDiagnostic);
+            var backupArguments = new[] { "-Database", source.Database!, "-MediaDirectory", fixture.StorageRoot, "-KeyDirectory", Path.Combine(fixture.StorageRoot, "keys"), "-AdditionalDirectories", string.Join('|', extras.Values), "-Destination", backup, "-ApplicationStopped" };
+            Assert.Equal(0, await Script("Backup-NotebookYt.ps1", backupArguments));
+            var restoreMappings = restoredExtras.Select(pair => $"{pair.Key}={pair.Value}").ToArray();
+            var restoreArguments = new[] { "-BackupDirectory", backup, "-NewDatabase", targetName, "-MediaDirectory", media, "-KeyDirectory", keys, "-AdditionalDirectoryMappings", string.Join('|', restoreMappings) };
+            Assert.True(await Script("Restore-NotebookYt.ps1", restoreArguments) == 0, lastDiagnostic);
+            foreach (var extra in restoredExtras)
+                Assert.Equal("controlled-backup-test", await File.ReadAllTextAsync(Path.Combine(extra.Value, "marker.txt")));
             await using var original = new NpgsqlConnection(source.ConnectionString); await original.OpenAsync();
             await using var restored = new NpgsqlConnection(target.ConnectionString); await restored.OpenAsync();
             await using var model = new EditorialDb(new DbContextOptionsBuilder<EditorialDb>().UseNpgsql(target.ConnectionString).Options);

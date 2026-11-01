@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][ValidatePattern('^[a-z][a-z0-9_]{0,62}$')][string]$NewDatabase,
     [Parameter(Mandatory=$true)][string]$MediaDirectory,
     [Parameter(Mandatory=$true)][string]$KeyDirectory,
+    [string]$AdditionalDirectoryMappings = '',
     [string]$PgBin = '',
     [string]$Server = '127.0.0.1', [int]$Port = 5432, [string]$Username = 'notebookyt'
 )
@@ -15,6 +16,23 @@ if ($mediaPath -eq $keyPath -or $mediaPath.StartsWith($keyPath + '\', [StringCom
 $backupPath = (Get-Item -LiteralPath $BackupDirectory).FullName.TrimEnd('\')
 $manifest = Get-Content -LiteralPath (Join-Path $backupPath 'manifest.json') -Raw | ConvertFrom-Json
 if ($manifest.version -ne 1) { throw 'Unsupported backup version.' }
+$additionalTargets = @{}
+$mappings = if ([string]::IsNullOrWhiteSpace($AdditionalDirectoryMappings)) { @() } else { @($AdditionalDirectoryMappings -split '\|') }
+foreach ($mapping in $mappings) {
+    $parts = $mapping -split '=', 2
+    if ($parts.Length -ne 2 -or $parts[0] -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or $additionalTargets.ContainsKey($parts[0])) {
+        throw 'Additional directory mappings must use unique name=path entries.'
+    }
+    $additionalTargets[$parts[0]] = [IO.Path]::GetFullPath($parts[1]).TrimEnd('\')
+}
+$additionalManifest = @($manifest.additionalDirectories)
+if (@($additionalManifest).Count -ne $additionalTargets.Count) { throw 'Every backed up additional directory requires one restore mapping.' }
+foreach ($entry in $additionalManifest) {
+    if ($entry.name -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or $entry.path -ne "additional/$($entry.name)" -or -not $additionalTargets.ContainsKey($entry.name)) {
+        throw 'Additional directory manifest is invalid.'
+    }
+    if (Test-Path -LiteralPath $additionalTargets[$entry.name]) { throw 'Additional restore directories must not already exist.' }
+}
 function Get-SafePath([string]$Root, [string]$Relative) {
     $path = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
     if (-not $path.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe backup path.' }
@@ -44,9 +62,22 @@ $null = New-Item -ItemType Directory -Path $keyPath
 foreach ($pair in @(@('media', $mediaPath), @('keys', $keyPath))) {
     Get-ChildItem -LiteralPath (Join-Path $backupPath $pair[0]) -Force | Copy-Item -Destination $pair[1] -Recurse -Force
 }
+foreach ($entry in $additionalManifest) {
+    $target = $additionalTargets[$entry.name]
+    $null = New-Item -ItemType Directory -Path $target
+    Get-ChildItem -LiteralPath (Get-SafePath $backupPath $entry.path) -Force | Copy-Item -Destination $target -Recurse -Force
+}
 foreach ($permission in $manifest.permissions | Sort-Object { $_.path.Length } -Descending) {
     $parts = $permission.path -split '/', 2
-    $root = if ($parts[0] -eq 'media') { $mediaPath } elseif ($parts[0] -eq 'keys') { $keyPath } else { throw 'Unknown permission root.' }
+    if ($parts[0] -eq 'media') { $root = $mediaPath }
+    elseif ($parts[0] -eq 'keys') { $root = $keyPath }
+    elseif ($parts[0] -eq 'additional') {
+        $extra = $parts[1] -split '/', 2
+        if (-not $additionalTargets.ContainsKey($extra[0])) { throw 'Missing additional directory permission mapping.' }
+        $root = $additionalTargets[$extra[0]]
+        if ($extra.Length -gt 1) { $parts = @('additional', $extra[1]) } else { $parts = @('additional') }
+    }
+    else { throw 'Unknown permission root.' }
     $target = if ($parts.Length -eq 1) { $root } else { Get-SafePath $root $parts[1] }
     $acl = Get-Acl -LiteralPath $target
     $acl.SetSecurityDescriptorSddlForm($permission.sddl)

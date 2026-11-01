@@ -72,20 +72,22 @@ Restaurar primero en una base y directorios nuevos y aislados; no sobrescribir u
 
 ### Copia y restauración reproducibles en Windows
 
-Los scripts requieren PowerShell, PostgreSQL local y el mismo usuario/máquina cuando las claves estén protegidas con DPAPI. Usar `.pgpass`/`PGPASSFILE` privado o el mecanismo de credenciales aprobado; no poner contraseñas en argumentos ni en el repositorio. Los directorios de destino y la base de restauración deben ser nuevos. El usuario PostgreSQL necesita permiso para crear esa base aislada.
+Los scripts requieren PowerShell, PostgreSQL local y el mismo usuario/máquina cuando las claves estén protegidas con DPAPI. Usar `.pgpass`/`PGPASSFILE` privado o `-PromptForPassword`, que hace que `pg_dump` solicite la contraseña en el terminal local sin incluirla en argumentos o logs. Los directorios de destino y la base de restauración deben ser nuevos. El usuario PostgreSQL necesita permiso para crear esa base aislada.
 
 ```powershell
 # Detener API y trabajador antes de copiar. Sustituir estas rutas por las configuradas.
 .\scripts\Backup-NotebookYt.ps1 -Database notebookyt -Server 127.0.0.1 -Port 5432 -Username notebookyt `
   -PgBin 'C:\PostgreSQL\bin' -MediaDirectory 'C:\NotebookYt\media' -KeyDirectory 'C:\NotebookYt\keys' `
-  -Destination 'C:\NotebookYtBackups\acceptance-20261030' -ApplicationStopped
+  -AdditionalDirectories 'C:\NotebookYt\operator\expert-library|C:\NotebookYt\operator\notebooklm-cli-profile|C:\NotebookYt\operator\secrets' `
+  -Destination 'C:\NotebookYtBackups\acceptance-20261030' -ApplicationStopped -PromptForPassword
 
 .\scripts\Restore-NotebookYt.ps1 -BackupDirectory 'C:\NotebookYtBackups\acceptance-20261030' `
   -NewDatabase notebookyt_restore_20261030 -Server 127.0.0.1 -Port 5432 -Username notebookyt `
-  -PgBin 'C:\PostgreSQL\bin' -MediaDirectory 'C:\NotebookYtRestore\media' -KeyDirectory 'C:\NotebookYtRestore\keys'
+  -PgBin 'C:\PostgreSQL\bin' -MediaDirectory 'C:\NotebookYtRestore\media' -KeyDirectory 'C:\NotebookYtRestore\keys' `
+  -AdditionalDirectoryMappings 'expert-library=C:\NotebookYtRestore\expert-library|notebooklm-cli-profile=C:\NotebookYtRestore\notebooklm-cli-profile|secrets=C:\NotebookYtRestore\secrets'
 ```
 
-El backup incluye dump en formato custom, medios, claves, SHA256 y descriptores de permisos Windows. Su directorio queda restringido al usuario que lo crea. El manifiesto guarda **nombres** de configuración, sin sus valores. Conservar la configuración privada por separado en un almacén seguro. Un SHA256 permite detectar corrupción; no autentica un backup frente a alguien que pueda modificar también el manifiesto. Guardar las copias fuera del equipo con protección adecuada sigue siendo una tarea del operador.
+El backup incluye dump en formato custom, medios, claves y, cuando se indican, directorios privados adicionales como `expert-library`, el perfil `notebooklm-cli-profile` y `secrets`. Verifica SHA256 y conserva descriptores de permisos Windows. Su directorio queda restringido al usuario que lo crea. El manifiesto guarda **nombres** de configuración, sin sus valores. Tratar toda la copia como material secreto: el perfil NotebookLM contiene credenciales de sesión. Un SHA256 detecta corrupción, pero no autentica un backup frente a quien pueda cambiar también el manifiesto. Guardar una copia fuera del equipo con protección adecuada sigue siendo responsabilidad del operador.
 
 Configurar el entorno restaurado con `ConnectionStrings__Editorial` apuntando a la **base nueva**, `Storage__Root` y `Security__KeyDirectory` apuntando a los directorios restaurados. Reponer privadamente la configuración OAuth si se necesita y conservar la identidad Windows/máquina cuando se use DPAPI. Arrancar primero aislado, comprobar el endpoint CSRF, semana, producciones, tareas, archivos y almacenamiento. No conectar dos trabajadores a la misma copia ni realizar publicaciones durante el ensayo. No se ha verificado recuperación en otra máquina, Linux ni volúmenes Docker.
 

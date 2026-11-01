@@ -43,7 +43,8 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
                 {
                     operation.Status = "Failed"; operation.ErrorCode = currentSources.Success ? "SOURCE_LIST_UNVERIFIED" : currentSources.Code; break;
                 }
-                var existing = sources.FirstOrDefault(x => string.Equals(NormalizeSourceUrl(x.Url), NormalizeSourceUrl(url), StringComparison.Ordinal));
+                var existing = sources.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.Url) &&
+                    string.Equals(NormalizeSourceUrl(x.Url), NormalizeSourceUrl(url), StringComparison.Ordinal));
                 if (existing is not null)
                 {
                     result = new(true, "OK", JsonSerializer.Serialize(new { id = existing.Id, url = existing.Url, duplicate = true }), 0);
@@ -223,8 +224,9 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
                 if (item.ValueKind != JsonValueKind.Object) return false;
                 var id = FindStringProperty(item, "id", "source_id", "sourceId");
                 var url = FindStringProperty(item, "url", "source_url", "sourceUrl");
-                if (string.IsNullOrWhiteSpace(id) || !Uri.TryCreate(url, UriKind.Absolute, out _)) return false;
-                sources.Add(new ExistingSource(id, url!));
+                if (string.IsNullOrWhiteSpace(id) ||
+                    (!string.IsNullOrWhiteSpace(url) && !Uri.TryCreate(url, UriKind.Absolute, out _))) return false;
+                sources.Add(new ExistingSource(id, url));
             }
             return true;
         }
@@ -237,7 +239,7 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
         if (builder.Path.Length > 1) builder.Path = builder.Path.TrimEnd('/');
         return builder.Uri.AbsoluteUri.TrimEnd('/');
     }
-    private sealed record ExistingSource(string Id, string Url);
+    private sealed record ExistingSource(string Id, string? Url);
     private sealed record ExistingArtifact(string Id, string Status);
     private static bool ContainsId(string? json, string expected) => ReadIds(json).Contains(expected, StringComparer.Ordinal);
     private static string[] ReadIds(string? json)
