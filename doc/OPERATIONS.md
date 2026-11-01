@@ -72,7 +72,7 @@ Restaurar primero en una base y directorios nuevos y aislados; no sobrescribir u
 
 ### Copia y restauración reproducibles en Windows
 
-Los scripts requieren PowerShell, PostgreSQL local y el mismo usuario/máquina cuando las claves estén protegidas con DPAPI. Usar `.pgpass`/`PGPASSFILE` privado o `-PromptForPassword`, que hace que `pg_dump` solicite la contraseña en el terminal local sin incluirla en argumentos o logs. Los directorios de destino y la base de restauración deben ser nuevos. El usuario PostgreSQL necesita permiso para crear esa base aislada.
+Los scripts requieren PowerShell, PostgreSQL local y el mismo usuario/máquina cuando las claves estén protegidas con DPAPI. Usar `.pgpass`/`PGPASSFILE` privado o `-PromptForPassword`; el backup solicita la contraseña a `pg_dump` y la restauración la solicita a `psql`, `createdb` y `pg_restore` en el terminal local, sin incluirla en argumentos o logs. Los directorios de destino y la base de restauración deben ser nuevos. El usuario PostgreSQL necesita permiso para crear esa base aislada.
 
 ```powershell
 # Detener API y trabajador antes de copiar. Sustituir estas rutas por las configuradas.
@@ -83,7 +83,7 @@ Los scripts requieren PowerShell, PostgreSQL local y el mismo usuario/máquina c
 
 .\scripts\Restore-NotebookYt.ps1 -BackupDirectory 'C:\NotebookYtBackups\acceptance-20261030' `
   -NewDatabase notebookyt_restore_20261030 -Server 127.0.0.1 -Port 5432 -Username notebookyt `
-  -PgBin 'C:\PostgreSQL\bin' -MediaDirectory 'C:\NotebookYtRestore\media' -KeyDirectory 'C:\NotebookYtRestore\keys' `
+  -PgBin 'C:\PostgreSQL\bin' -MediaDirectory 'C:\NotebookYtRestore\media' -KeyDirectory 'C:\NotebookYtRestore\keys' -PromptForPassword `
   -AdditionalDirectoryMappings 'expert-library=C:\NotebookYtRestore\expert-library|notebooklm-cli-profile=C:\NotebookYtRestore\notebooklm-cli-profile|secrets=C:\NotebookYtRestore\secrets'
 ```
 

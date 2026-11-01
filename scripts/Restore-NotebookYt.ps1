@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory=$true)][string]$MediaDirectory,
     [Parameter(Mandatory=$true)][string]$KeyDirectory,
     [string]$AdditionalDirectoryMappings = '',
+    [switch]$PromptForPassword,
     [string]$PgBin = '',
     [string]$Server = '127.0.0.1', [int]$Port = 5432, [string]$Username = 'notebookyt'
 )
@@ -50,12 +51,13 @@ foreach ($permission in $manifest.permissions) { $null = Get-SafePath $backupPat
 $psql = if ($PgBin) { Join-Path $PgBin 'psql.exe' } else { 'psql' }
 $createdb = if ($PgBin) { Join-Path $PgBin 'createdb.exe' } else { 'createdb' }
 $restore = if ($PgBin) { Join-Path $PgBin 'pg_restore.exe' } else { 'pg_restore' }
-$exists = & $psql --host=$Server --port=$Port --username=$Username --no-password --dbname=postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '$NewDatabase'"
+$passwordMode = if ($PromptForPassword) { '--password' } else { '--no-password' }
+$exists = & $psql --host=$Server --port=$Port --username=$Username $passwordMode --dbname=postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '$NewDatabase'"
 if ($LASTEXITCODE -ne 0) { throw 'Database preflight failed.' }
 if ($exists -eq '1') { throw 'Target database already exists; refusing to overwrite.' }
-& $createdb --host=$Server --port=$Port --username=$Username --no-password $NewDatabase
+& $createdb --host=$Server --port=$Port --username=$Username $passwordMode $NewDatabase
 if ($LASTEXITCODE -ne 0) { throw 'Creating isolated target database failed.' }
-& $restore --host=$Server --port=$Port --username=$Username --no-password --exit-on-error --dbname=$NewDatabase (Join-Path $backupPath 'database.dump')
+& $restore --host=$Server --port=$Port --username=$Username $passwordMode --exit-on-error --dbname=$NewDatabase (Join-Path $backupPath 'database.dump')
 if ($LASTEXITCODE -ne 0) { throw 'Database restore failed. Inspect the new target; no existing database was overwritten.' }
 $null = New-Item -ItemType Directory -Path $mediaPath
 $null = New-Item -ItemType Directory -Path $keyPath
