@@ -24,6 +24,7 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
     public async Task Process(BackgroundJob job, CancellationToken ct)
     {
         var upload = await Upload(job, ct); if (upload.VideoId.Length != 0) return;
+        await WorkflowControl.EnsureDailyUpload(db, upload.ProductionId, DateTime.UtcNow);
         var metadata = JsonSerializer.Deserialize<PublicationSnapshot>(upload.MetadataSnapshot)!;
         StudioRules.ValidatePublicationSchedule(metadata.Visibility, metadata.PublishAtUtc);
         var artifact = await db.Set<MediaArtifact>().FindAsync([upload.ArtifactId], ct) ?? throw new StudioException(409, "Falta el archivo aprobado.");
@@ -177,7 +178,11 @@ public sealed class YouTubePublishing(EditorialDb db, GoogleAuthorization google
         app.MapPost("/api/studio/productions/{id:guid}/upload", async (Guid id, PublicationConsent consent, EditorialDb db, MediaStorage storage) =>
         {
             var existing = await db.Set<YouTubeUpload>().SingleOrDefaultAsync(u => u.ProductionId == id); if (existing is not null) return Results.Ok(existing);
-            await StudioRules.Editable(db, id); var w = await StudioRules.Workspace(db, id); var check = await QualityGate.Check(db, storage, id);
+            await StudioRules.Editable(db, id);
+            await WorkflowControl.EnsureDailyUpload(db, id, DateTime.UtcNow);
+            var expertFailures = await WorkflowControl.ExpertFailures(db, id, true);
+            if (expertFailures.Count > 0) throw new StudioException(409, string.Join(" ", expertFailures));
+            var w = await StudioRules.Workspace(db, id); var check = await QualityGate.Check(db, storage, id);
             var p = await db.Productions.FindAsync(id); var settings = await db.Set<ChannelSettings>().FindAsync(p!.ChannelId);
             if (!consent.Approved || !check.Ready || (settings?.RequireEditorialApproval != false && w.ApprovedAtUtc is null)) throw new StudioException(409, "Falta aprobación explícita o hay bloqueos de calidad.");
             if (!await db.Set<GoogleConnection>().AnyAsync(c => c.Kind == "YouTube" && c.Status == "Connected")) throw new StudioException(409, "Conecta YouTube antes de encolar la subida.");

@@ -145,7 +145,7 @@ public static class MediaEndpoints
         app.MapPost("/api/studio/artifacts/{id:guid}/thumbnail", async (Guid id, ThumbnailInput input, EditorialDb db, MediaStorage storage, CancellationToken ct) =>
         {
             var source = await db.Set<MediaArtifact>().FindAsync(id) ?? throw new StudioException(404, "Vídeo inexistente."); await StudioRules.Editable(db, source.ProductionId);
-            if (source.Kind != "Video" || source.Status != "Valid" || source.Origin != "OperatorAttested" || input.Seconds < 0 || input.Seconds >= source.DurationSeconds || !double.IsFinite(input.Seconds)) throw new StudioException(400, "Selecciona un instante válido de un vídeo NotebookLM inspeccionado.");
+            if (source.Kind != "Video" || source.Status != "Valid" || (source.Origin != "OperatorAttested" && source.Origin != "NotebookLmProviderVerified") || input.Seconds < 0 || input.Seconds >= source.DurationSeconds || !double.IsFinite(input.Seconds)) throw new StudioException(400, "Selecciona un instante válido de un vídeo NotebookLM inspeccionado.");
             if (!double.IsFinite(input.CropX) || !double.IsFinite(input.CropY) || input.CropX is < 0 or > 1 || input.CropY is < 0 or > 1) throw new StudioException(400, "El foco del recorte debe estar entre 0 y 1.");
             var overlay = StudioRules.Text(input.Text ?? "", 120);
             var temporary = Path.Combine(storage.Root, Guid.NewGuid().ToString("N") + ".jpg");

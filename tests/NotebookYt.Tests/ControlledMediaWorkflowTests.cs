@@ -18,9 +18,9 @@ public class ControlledMediaWorkflowTests(PostgresFixture fixture) : IClassFixtu
         var text = await response.Content.ReadAsStringAsync(); Assert.True(response.IsSuccessStatusCode, $"{response.StatusCode}: {text}"); return JsonDocument.Parse(text).RootElement.Clone();
     }
     [Fact]
-    public Task ControlledOperatorAttestationTestsQualityAndThumbnailPlumbingNotGenuineOrigin() => RunWorkflow();
+    public Task ControlledOperatorAttestationTestsQualityAndThumbnailPlumbingNotGenuineOrigin() => RunWorkflow(true);
 
-    internal async Task RunWorkflow()
+    internal async Task RunWorkflow(bool testCorruption = false)
     {
         var client = fixture.Client;
         await Json(await client.PutAsJsonAsync("/api/channel", new { name = "Controlled media workflow", timeZone = "Etc/UTC" }));
@@ -70,5 +70,28 @@ public class ControlledMediaWorkflowTests(PostgresFixture fixture) : IClassFixtu
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(path + "/upload", new { approved = true, evidence = "Must fail without Google authorization" })).StatusCode);
         var file = await client.GetAsync($"/api/studio/artifacts/{artifactId}/file"); Assert.Equal("video/mp4", file.Content.Headers.ContentType?.MediaType);
         Assert.Equal(artifact.GetProperty("sha256").GetString(), Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await file.Content.ReadAsByteArrayAsync())));
+        var expert = new NotebookExpert { Name = "Controlled export evidence", NotebookId = "controlled-export", Specialization = "research" }; db.Add(expert);
+        var sequence = 1;
+        foreach (var stage in WorkflowControl.FinalStages)
+            db.Add(new ExpertWorkflowRun { ProductionId = id, ExpertId = expert.Id, StageKey = stage, Sequence = sequence++,
+                Status = "Approved", Response = "Controlled fixture response, not live NotebookLM evidence", ConversationId = "controlled-conversation",
+                IdempotencyKey = Guid.NewGuid().ToString() });
+        await db.SaveChangesAsync();
+        var reserve = await client.GetAsync(path + "/reserve.zip");
+        Assert.Equal(HttpStatusCode.OK, reserve.StatusCode);
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(await reserve.Content.ReadAsByteArrayAsync()));
+        Assert.NotNull(zip.GetEntry("youtube.json")); Assert.NotNull(zip.GetEntry("video.mp4")); Assert.NotNull(zip.GetEntry("thumbnail.jpg"));
+        using var manifest = JsonDocument.Parse(await new StreamReader(zip.GetEntry("youtube.json")!.Open()).ReadToEndAsync());
+        Assert.Equal(id, manifest.RootElement.GetProperty("productionId").GetGuid());
+        Assert.DoesNotContain("storageKey", manifest.RootElement.GetRawText());
+        await using var exportedVideo = zip.GetEntry("video.mp4")!.Open();
+        Assert.Equal(artifact.GetProperty("sha256").GetString(), Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(exportedVideo)));
+        if (testCorruption)
+        {
+            var storedVideo = await db.Set<MediaArtifact>().FindAsync(artifactId);
+            await File.WriteAllTextAsync(Path.Combine(fixture.StorageRoot, storedVideo!.StorageKey), "corrupted after approval");
+            Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync(path + "/reserve.zip")).StatusCode);
+        }
+
     }
 }

@@ -1,3 +1,4 @@
+import { ProductionWorkflow } from './ProductionWorkflow';
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest as api, uploadArtifact } from './client';
 import { stageLabel, taskLabel } from './editorial';
@@ -111,6 +112,7 @@ function Reschedule({ slot, busy, run }: { slot: Slot; busy: boolean; run: Run }
 }
 
 function ProductionStudio({ detail, requireEditorialApproval, busy, run, reload }: { detail: Detail; requireEditorialApproval: boolean; busy: boolean; run: Run; reload: () => Promise<void> }) {
+  const [workflowExpanded, setWorkflowExpanded] = useState(false);
   const [panel, setPanel] = useState('Investigación'); const [source, setSource] = useState({ title: '', kind: 'Url', url: '', notes: '', classification: 'Primary', provenance: '', included: true, artifactId: '' });
   const [notebook, setNotebook] = useState(detail.notebook?.url ?? ''); const [evidence, setEvidence] = useState(''); const [attested, setAttested] = useState(false); const [file, setFile] = useState<File | null>(null); const [fileKind, setFileKind] = useState('Video'); const [seconds, setSeconds] = useState(0); const [quality, setQuality] = useState<{ ready: boolean; failures: string[]; warnings: string[] } | null>(null);
   const [reconcileVideoId, setReconcileVideoId] = useState('');
@@ -126,6 +128,7 @@ function ProductionStudio({ detail, requireEditorialApproval, busy, run, reload 
   return <section><h3>{p.topic}</h3><p>Nicho histórico: {p.nicheNameSnapshot} · etapa: {String(w?.stage ?? 'Sin abrir')}</p><p className="next-action"><strong>Siguiente acción:</strong> {detail.nextAction}</p>
     {!w ? <button disabled={frozen} onClick={() => mutate('/open')}>Abrir espacio de trabajo</button> : <>
       <nav aria-label="Espacio de trabajo">{['Investigación', 'Dirección editorial', 'NotebookLM', 'Vídeo y calidad', 'Publicación', 'Historial'].map(v => <button key={v} aria-pressed={panel === v} onClick={() => setPanel(v)}>{v}</button>)}</nav>
+      <details onToggle={event => setWorkflowExpanded(event.currentTarget.open)}><summary>Consultar flujo completo y paquete de reserva</summary>{workflowExpanded && <ProductionWorkflow productionId={p.id} />}</details>
       {panel === 'Dirección editorial' && <EditorialDirector productionId={p.id} sources={detail.sources} artifactId={w.canonicalArtifactId ? String(w.canonicalArtifactId) : null} disabled={frozen} onSaved={reload} />}
       {panel === 'Investigación' && <><ObjectForm key={JSON.stringify(w)} value={w} fields={workspaceFields.slice(0, 4)} label="Contexto de investigación" disabled={frozen || detail.packages.length > 0} onSave={draft => mutate('', draft, 'PUT')} />
         <h4>Fuentes y procedencia</h4><ul>{detail.sources.map(s => <li key={s.id}><strong>{s.title}</strong> · {s.kind} · {s.included ? 'Incluida' : 'Excluida'}<p>{s.provenance}</p>{s.url && <a href={s.url} target="_blank" rel="noopener noreferrer">Abrir fuente</a>}<p>{s.notes}</p><button disabled={frozen || detail.packages.length > 0} onClick={() => run(async () => { await api('/studio/sources/' + s.id + '/inclusion', 'PUT', { included: !s.included }); await reload(); })}>{s.included ? 'Excluir fuente' : 'Incluir fuente'}</button></li>)}</ul>

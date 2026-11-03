@@ -17,11 +17,11 @@ public static class QualityGate
         if (!await db.Set<ManualNotebookTask>().AnyAsync(t => t.ProductionId == id) || await db.Set<ManualNotebookTask>().AnyAsync(t => t.ProductionId == id && t.Status != "Completed")) failures.Add("Quedan tareas de NotebookLM pendientes.");
         var artifact = await db.Set<MediaArtifact>().SingleOrDefaultAsync(a => a.Id == w.CanonicalArtifactId && a.ProductionId == id);
         failures.AddRange(await EditorialWorkflow.ReviewFailures(db, id, w.CanonicalArtifactId));
-        if (artifact is null || artifact.Kind != "Video" || artifact.Status != "Valid" || artifact.Origin != "OperatorAttested" || !storage.Exists(artifact.StorageKey)) failures.Add("Falta un vídeo canónico válido de NotebookLM.");
+        if (artifact is null || artifact.Kind != "Video" || artifact.Status != "Valid" || (artifact.Origin != "OperatorAttested" && artifact.Origin != "NotebookLmProviderVerified") || !storage.Exists(artifact.StorageKey)) failures.Add("Falta un vídeo canónico válido de NotebookLM.");
         else
         {
             if (!artifact.HasAudio || artifact.Height < settings.MinimumHeight || artifact.DurationSeconds < settings.MinimumDurationSeconds || artifact.DurationSeconds > settings.MaximumDurationSeconds) failures.Add("El vídeo no cumple la configuración técnica de calidad.");
-            warnings.Add("La procedencia NotebookLM está declarada por el operador; no está verificada criptográficamente por Google.");
+            warnings.Add("La procedencia NotebookLM consta en el registro de importación; no está verificada criptográficamente por Google.");
         }
         var thumbnail = await db.Set<MediaArtifact>().Where(a => a.ProductionId == id && a.Kind == "Thumbnail" && a.Status == "Valid").OrderByDescending(a => a.ImportedAtUtc).FirstOrDefaultAsync();
         if (thumbnail is null || !storage.Exists(thumbnail.StorageKey)) failures.Add("Falta una miniatura válida.");

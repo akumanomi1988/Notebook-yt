@@ -58,6 +58,10 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
                 break;
             case "GenerateVideo":
             {
+                if (operation.ProductionId is not Guid episode || (await WorkflowControl.ExpertFailures(db, episode, false)).Count > 0)
+                {
+                    operation.Status = "Failed"; operation.ErrorCode = "EXPERT_PREPARATION_REQUIRED"; break;
+                }
                 var auth = await provider.CheckAuthenticationAsync(ct);
                 if (!auth.Success || !IsAuthReady(auth.Json))
                 {
@@ -76,9 +80,16 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
                     operation.Status = "DeferredQuota"; operation.ErrorCode = "VIDEO_QUOTA_UNAVAILABLE";
                     job.Status = "NeedsAttention"; break;
                 }
+                if (!await db.Set<EditorialConfiguration>().AnyAsync(c => c.ProductionId == operation.ProductionId && c.ActiveSnapshotId != null, ct))
+                { operation.Status = "Failed"; operation.ErrorCode = "APPROVED_PACKAGE_REQUIRED"; break; }
                 var sources = root.GetProperty("sourceIds").EnumerateArray().Select(x => x.GetString()!).ToArray();
                 var registered = await provider.ListSourcesAsync(operation.NotebookId, ct);
-                var sourceIds = registered.Success ? ReadIds(registered.Json) : [];
+                List<ExistingSource> inventory = [];
+                var validInventory = registered.Success && TryReadSources(registered.Json, out inventory);
+                var readySources = inventory.Where(s => s.Status == "ready").Select(s => s.Id).Distinct(StringComparer.Ordinal).ToArray();
+                if (!validInventory || readySources.Length < 20)
+                { operation.Status = "Failed"; operation.ErrorCode = "TWENTY_READY_SOURCES_REQUIRED"; break; }
+                var sourceIds = readySources;
                 if (!registered.Success || sources.Any(id => !sourceIds.Contains(id, StringComparer.Ordinal)))
                 {
                     operation.Status = "Failed"; operation.ErrorCode = registered.Success ? "SOURCE_NOT_IN_NOTEBOOK" : registered.Code; break;
@@ -226,7 +237,7 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
                 var url = FindStringProperty(item, "url", "source_url", "sourceUrl");
                 if (string.IsNullOrWhiteSpace(id) ||
                     (!string.IsNullOrWhiteSpace(url) && !Uri.TryCreate(url, UriKind.Absolute, out _))) return false;
-                sources.Add(new ExistingSource(id, url));
+                sources.Add(new ExistingSource(id, url, FindStringProperty(item, "status", "state") ?? "unknown"));
             }
             return true;
         }
@@ -239,7 +250,7 @@ public sealed class NotebookLmOperationProcessor(EditorialDb db, INotebookLmProv
         if (builder.Path.Length > 1) builder.Path = builder.Path.TrimEnd('/');
         return builder.Uri.AbsoluteUri.TrimEnd('/');
     }
-    private sealed record ExistingSource(string Id, string? Url);
+    private sealed record ExistingSource(string Id, string? Url, string Status);
     private sealed record ExistingArtifact(string Id, string Status);
     private static bool ContainsId(string? json, string expected) => ReadIds(json).Contains(expected, StringComparer.Ordinal);
     private static string[] ReadIds(string? json)

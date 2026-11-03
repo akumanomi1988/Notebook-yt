@@ -163,7 +163,7 @@ public static class StudioEndpoints
             var index = Array.FindIndex(StudioRules.ManualSteps, s => s.Kind == task.Kind);
             if (StudioRules.ManualSteps.Take(index).Any(s => !tasks.Any(t => t.Kind == s.Kind && t.Status == "Completed"))) throw new StudioException(409, "Completa primero la tarea anterior.");
             if (task.Kind == "CreateNotebook" && !await db.NotebookReferences.AnyAsync(n => n.ProductionId == task.ProductionId)) throw new StudioException(409, "Registra primero la URL del notebook.");
-            if (task.Kind == "ImportNotebookVideo" && !await db.Set<MediaArtifact>().AnyAsync(a => a.ProductionId == task.ProductionId && a.Kind == "Video" && a.Status == "Valid" && a.Origin == "OperatorAttested")) throw new StudioException(409, "Falta un vídeo real inspeccionado con procedencia declarada.");
+            if (task.Kind == "ImportNotebookVideo" && !await db.Set<MediaArtifact>().AnyAsync(a => a.ProductionId == task.ProductionId && a.Kind == "Video" && a.Status == "Valid" && (a.Origin == "OperatorAttested" || a.Origin == "NotebookLmProviderVerified"))) throw new StudioException(409, "Falta un vídeo real inspeccionado con procedencia declarada.");
             var editorial = await db.Set<EditorialConfiguration>().SingleOrDefaultAsync(c => c.ProductionId == task.ProductionId);
             if (editorial is not null)
             {
@@ -180,7 +180,7 @@ public static class StudioEndpoints
         api.MapPost("/productions/{id:guid}/canonical/{artifactId:guid}", async (Guid id, Guid artifactId, EditorialDb db) =>
         {
             await StudioRules.Editable(db, id); var w = await StudioRules.Workspace(db, id);
-            if (!await db.Set<MediaArtifact>().AnyAsync(a => a.Id == artifactId && a.ProductionId == id && a.Kind == "Video" && a.Status == "Valid" && a.Origin == "OperatorAttested")) throw new StudioException(409, "Selecciona un vídeo válido de NotebookLM con procedencia declarada.");
+            if (!await db.Set<MediaArtifact>().AnyAsync(a => a.Id == artifactId && a.ProductionId == id && a.Kind == "Video" && a.Status == "Valid" && (a.Origin == "OperatorAttested" || a.Origin == "NotebookLmProviderVerified"))) throw new StudioException(409, "Selecciona un vídeo válido de NotebookLM con procedencia declarada.");
             if (await db.Set<ManualNotebookTask>().AnyAsync(t => t.ProductionId == id && t.Status != "Completed")) throw new StudioException(409, "Completa las tareas de NotebookLM antes de seleccionar el vídeo canónico.");
             w.CanonicalArtifactId = artifactId; w.Stage = "QualityReview"; w.ApprovedAtUtc = null;
             StudioRules.Event(db, id, "CanonicalArtifactSelected", artifactId.ToString()); await db.SaveChangesAsync(); return Results.Ok(w);

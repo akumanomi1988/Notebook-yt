@@ -107,7 +107,7 @@ public static class EditorialEndpoints
             await StudioRules.Editable(db, id); var row = await db.Set<EditorialConfiguration>().SingleOrDefaultAsync(x => x.ProductionId == id);
             if (row?.ActiveSnapshotId is not Guid snapshot || row.Version != input.Version) throw new StudioException(409, "La revisión requiere el paquete editorial vigente.");
             var w = await StudioRules.Workspace(db, id);
-            if (w.CanonicalArtifactId != input.ArtifactId || !await db.Set<MediaArtifact>().AnyAsync(a => a.Id == input.ArtifactId && a.ProductionId == id && a.Status == "Valid" && a.Kind == "Video" && a.Origin == "OperatorAttested")) throw new StudioException(409, "Selecciona el vídeo canónico original, inspeccionado y declarado.");
+            if (w.CanonicalArtifactId != input.ArtifactId || !await db.Set<MediaArtifact>().AnyAsync(a => a.Id == input.ArtifactId && a.ProductionId == id && a.Status == "Valid" && a.Kind == "Video" && (a.Origin == "OperatorAttested" || a.Origin == "NotebookLmProviderVerified"))) throw new StudioException(409, "Selecciona el vídeo canónico original, inspeccionado y declarado.");
             if (input.Evidence is null || input.Evidence.Keys.Any(k => !EditorialIntelligence.ReviewCriteria.Contains(k))) throw new StudioException(400, "Criterio de revisión desconocido.");
             foreach (var value in input.Evidence.Values) StudioRules.Text(value, 4000, true);
             if (input.Approved && EditorialIntelligence.ReviewCriteria.Any(k => !input.Evidence.TryGetValue(k, out var v) || string.IsNullOrWhiteSpace(v))) throw new StudioException(409, "Aporta evidencia para cada criterio editorial; no hay aprobaciones automáticas de contenido.");

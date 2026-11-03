@@ -97,6 +97,7 @@ app.Use(async (context, next) =>
 });
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapStudio();
+app.MapWorkflowControl();
 app.MapEditorialIntelligence();
 app.MapNotebookLm();
 app.MapNotebookLmOperations();
